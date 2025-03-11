@@ -1,0 +1,13 @@
+langchain-core
+langchain-community
+pinecone-client
+sentence-transformers
+streamlit
+yfinance
+transformers
+requests
+python-dotenv
+langchain-huggingface
+-e .
+pypdf
+cryptography

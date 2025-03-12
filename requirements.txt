@@ -11,3 +11,4 @@ langchain-huggingface
 -e .
 pypdf
 cryptography
+accelerate

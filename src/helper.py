@@ -1,10 +1,12 @@
+#streamlit run app.py --server.fileWatcherType none
+
+
 import os
 import pinecone
-pinecone.Index = pinecone.data.index.Index
 from typing import List
 from langchain_community.document_loaders.pdf import PyPDFLoader
 from langchain.text_splitter import RecursiveCharacterTextSplitter
-from langchain_community.embeddings import HuggingFaceEmbeddings
+from langchain_huggingface import HuggingFaceEmbeddings
 from langchain_community.vectorstores import Pinecone
 from dotenv import load_dotenv
 

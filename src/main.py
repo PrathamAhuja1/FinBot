@@ -102,17 +102,22 @@ def get_stock_data(ticker="AAPL"):
 
 
 
-def get_seekingalpha_news(search_query="markets"):
-    """Get financial news from Seeking Alpha API"""
+def get_seekingalpha_news(search_query="markets", country=None):
+    """Get financial news with proper country filtering"""
     headers = RAPIDAPI_HEADERS.copy()
     headers["X-RapidAPI-Host"] = "seeking-alpha.p.rapidapi.com"
 
+    # Build targeted search query
+    final_query = search_query
+    if country:
+        final_query += f" {country} market"  # Better targeting for country-specific news
+
     params = {
         "filter[slug]": "market-news",
-        "q": search_query,
-        "page[size]": 5,
+        "q": final_query,
+        "page[size]": 15,  # Increased to max allowed articles
         "page[number]": 1,
-        "since": "0"
+        "sort": "-latest"
     }
 
     try:
@@ -120,20 +125,16 @@ def get_seekingalpha_news(search_query="markets"):
             "https://seeking-alpha.p.rapidapi.com/news/v2/list",
             headers=headers,
             params=params,
-            timeout=10
+            timeout=15
         )
         response.raise_for_status()
         data = response.json()
 
-        if not data.get('data'):
-            return {"error": "No articles found"}
-
         articles = []
-        for item in data['data']:
+        for item in data.get('data', []):
             attributes = item.get('attributes', {})
             articles.append({
                 "title": attributes.get('title', 'No title'),
-                "content": attributes.get('content', '')[:200] + "...",
                 "url": attributes.get('uri'),
                 "published": attributes.get('publishOn'),
                 "symbols": [s['symbol'] for s in attributes.get('symbols', [])]
@@ -141,14 +142,14 @@ def get_seekingalpha_news(search_query="markets"):
 
         return {
             "count": len(articles),
-            "articles": articles
+            "articles": articles,
+            "query_used": final_query
         }
 
     except requests.HTTPError as e:
         return {"error": f"API Error {e.response.status_code}: {str(e)}"}
     except Exception as e:
         return {"error": f"General error: {str(e)}"}
-
 
 
 
@@ -277,7 +278,16 @@ def determine_api_calls(query):
 
     # News data
     if any(k in q_lower for k in ["news", "update", "headlines"]):
-        news_data = get_seekingalpha_news(query)
+        country_code = extract_country(query)
+        country_name = {
+            "IN": "India", "US": "USA", "UK": "UK", "CA": "Canada",
+            "AU": "Australia", "NZ": "New Zealand", "ZA": "South Africa", "global": "global",
+        }.get(country_code, None)
+        
+        news_data = get_seekingalpha_news(
+            search_query=query,
+            country=country_name
+        )
         if isinstance(news_data, dict) and "error" in news_data:
             api_status["financial_news"] = f"Error: {news_data['error']}"
         else:
@@ -426,13 +436,12 @@ def build_prompt(query, index_name, api_responses=None):
                     # Seeking Alpha News formatting
                     elif api_name == "financial_news" and "articles" in response:
                         news_items = []
-                        for item in response.get("articles", [])[:3]:
+                        for item in response.get("articles", [])[:10]:
                             symbols = f"({', '.join(item.get('symbols', []))})" if item.get('symbols') else ""
                             news_items.append(
                                 f"- {item.get('title', 'No title')} {symbols}"
                             )
                         cleaned_responses.append("Latest Financial News:\n" + "\n".join(news_items))
-
 
                     # Alpha Vantage Forex Data formatting
                     elif api_name == "forex" and "rate" in response:

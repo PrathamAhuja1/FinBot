@@ -5,6 +5,7 @@ from src.helper import query_index
 from transformers import AutoModelForCausalLM, AutoTokenizer, pipeline,BitsAndBytesConfig
 import torch
 from datetime import datetime
+import re
 
 load_dotenv()
 RAPIDAPI_KEY = os.environ.get("RAPIDAPI_KEY")
@@ -25,33 +26,36 @@ RAPIDAPI_HEADERS = {
 }
 
 # ------------------------------------------------------------------------------------------------------------------------------------------------
+
 def get_forex_data(base="USD", target="INR"):
-    """Get Forex data from forex-api2"""
+    """
+    Returns the current exchange rate from base to target currency.
+    """
     headers = RAPIDAPI_HEADERS.copy()
-    headers["X-RapidAPI-Host"] = "forex-api2.p.rapidapi.com"
-    
+    headers["X-RapidAPI-Host"] = "alpha-vantage.p.rapidapi.com"
     try:
         response = requests.get(
-            "https://forex-api2.p.rapidapi.com/convert",
+            "https://alpha-vantage.p.rapidapi.com/query",
             headers=headers,
             params={
-                "amount": "1",
-                "from": base.upper(),
-                "to": target.upper()
+                "function": "CURRENCY_EXCHANGE_RATE",
+                "from_currency": base.upper(),
+                "to_currency": target.upper(),
+                "apikey": RAPIDAPI_KEY
             },
             timeout=10
         )
         response.raise_for_status()
         data = response.json()
-        
-        if not data.get('success'):
-            return {"error": data.get('error', 'Unknown forex error')}
-            
+        exchange_rate_data = data.get("Realtime Currency Exchange Rate", {})
+        if not exchange_rate_data:
+            return {"error": "No exchange rate data found"}
+        rate = float(exchange_rate_data.get("5. Exchange Rate", 0))
         return {
-            "base": data['base'],
-            "target": data['target'],
-            "rate": float(data['rate']),
-            "timestamp": data['timestamp']
+            "base": exchange_rate_data.get("1. From_Currency Code", base.upper()),
+            "target": exchange_rate_data.get("3. To_Currency Code", target.upper()),
+            "rate": rate,
+            "timestamp": exchange_rate_data.get("6. Last Refreshed", datetime.now().isoformat())
         }
     except Exception as e:
         return {"error": str(e)}
@@ -235,7 +239,6 @@ def get_crypto_data(symbol='BTC'):
 
 def extract_ticker(query):
     """Smart ticker extraction with fallback mechanisms"""
-    import re
     
     # Expanded ticker map with common symbols
     ticker_map = {
@@ -348,6 +351,16 @@ def determine_api_calls(query):
             responses["crypto"] = crypto_data
             api_status["crypto"] = "Success"
 
+    # Forex data
+    if any(k in q_lower for k in ["forex", "currency", "exchange rate"]):
+        print("Attempting to fetch forex data...")
+        forex_data = get_forex_data("USD", "INR")
+        if "error" in forex_data:
+            api_status["forex"] = f"Error: {forex_data['error']}"
+        else:
+            responses["forex"] = forex_data
+            api_status["forex"] = "Success"        
+
 
 
     responses["_api_status"] = api_status
@@ -422,11 +435,10 @@ generator = load_model()
 # ------------------------------------------------------------------------------------------------------------------------------------------------
 
 def build_prompt(query, index_name, api_responses=None):
-    """Build a prompt with better context handling for Phi-4"""
+    """Build a prompt with proper context handling for Phi-4 using Alpha Vantage & WSJ News API."""
     try:
         internal_context = get_internal_context(query, index_name)
 
-        # Only call APIs if api_responses not provided
         if api_responses is None:
             api_responses = determine_api_calls(query)
 
@@ -437,27 +449,35 @@ def build_prompt(query, index_name, api_responses=None):
                 
             if isinstance(response, dict):
                 try:
-                    # Yahoo Finance formatting
-                    if api_name == "yahoo_finance" and "price" in response:
+                    # Alpha Vantage Stock Data formatting
+                    if api_name == "stock_data" and "price" in response:
                         cleaned_responses.append(
                             f"Stock Data ({response.get('symbol', 'N/A')}):\n"
-                            f"Name: {response.get('name', 'N/A')}\n"
-                            f"Price: {response.get('price', 0):.2f} {response.get('currency', '')}\n"
-                            f"Market Cap: {response.get('market_cap', 0):,.0f}\n"
-                            f"Day Range: {response.get('day_low', 0):.2f}-{response.get('day_high', 0):.2f}\n"
-                            f"52 Week Range: {response.get('year_low', 0):.2f}-{response.get('year_high', 0):.2f}\n"
-                            f"Recommendation: {response.get('recommendation', 'N/A').title()}"
+                            f"Closing Price: {response.get('price', 0):.2f} USD\n"
+                            f"Volume: {response.get('volume', 0):,}\n"
+                            f"Last Updated: {response.get('date', 'N/A')}"
                         )
 
-                    # News formatting (changed from wsj_news to financial_news)
+                    # WSJ News formatting
                     elif api_name == "financial_news" and "articles" in response:
                         news_items = []
                         for item in response.get("articles", [])[:3]:
                             news_items.append(
-                                f"- {item.get('title', 'No title')} "
-                                f"({item.get('source', {}).get('name', 'Unknown source')})"
+                                f"- {item.get('title', 'No title')} ({item.get('source', 'Wall Street Journal')})"
                             )
                         cleaned_responses.append("Latest Financial News:\n" + "\n".join(news_items))
+
+                    # Alpha Vantage Forex Data formatting
+                    elif api_name == "forex" and "rate" in response:
+                        base_currency = response.get('base', 'Unknown')
+                        target_currency = response.get('target', 'Unknown')
+                        exchange_rate = response.get('rate', 0)
+
+                        cleaned_responses.append(
+                            f"Forex ({base_currency}-{target_currency}):\n"
+                            f"Exchange Rate: {exchange_rate:.4f}\n"
+                            f"Last Updated: {response.get('timestamp', 'N/A')}"
+                        )
 
                     # Metal Prices formatting
                     elif api_name == "metal_prices":
@@ -470,9 +490,6 @@ def build_prompt(query, index_name, api_responses=None):
 
                     # Crypto Data formatting
                     elif api_name == "crypto" and "price" in response:
-                        if not all(key in response for key in ["name", "symbol"]):
-                            cleaned_responses.append("Crypto Data: Incomplete API response")
-                            continue
                         cleaned_responses.append(
                             f"Crypto Data ({response.get('name', 'Unknown')}):\n"
                             f"Symbol: {response.get('symbol', 'N/A')}\n"
@@ -482,21 +499,11 @@ def build_prompt(query, index_name, api_responses=None):
                             f"All Time High: ${response.get('allTimeHigh', 0):,.2f}"
                         )
 
-                    # Forex Data formatting
-                    elif api_name == "forex" and "rates" in response:
-                        forex_data = []
-                        for pair, rate in response.get('rates', {}).items():
-                            forex_data.append(f"{pair}: {rate}")
-                        cleaned_responses.append("Forex Rates:\n" + "\n".join(forex_data))
-
-                    # Fallback formatting for other APIs
                     else:
                         important_keys = ['price', 'rate', 'value', 'name', 'symbol']
-                        relevant_data = []
-                        for k, v in response.items():
-                            if k in important_keys and not isinstance(v, (dict, list)):
-                                relevant_data.append(f"{k}: {v}")
-                        
+                        relevant_data = [
+                            f"{k}: {v}" for k, v in response.items() if k in important_keys and not isinstance(v, (dict, list))
+                        ]
                         if relevant_data:
                             cleaned_responses.append(f"{api_name}:\n" + "\n".join(relevant_data))
                         else:
@@ -536,6 +543,8 @@ def build_prompt(query, index_name, api_responses=None):
     except Exception as e:
         print(f"Prompt building error: {str(e)}")
         return f"System Error: Failed to build prompt. Original query: {query}"
+
+
 # ------------------------------------------------------------------------------------------------------------------------------------------------
 
 

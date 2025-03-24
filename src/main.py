@@ -5,7 +5,8 @@ from src.helper import query_index
 from transformers import AutoModelForCausalLM, AutoTokenizer, pipeline,BitsAndBytesConfig
 import torch
 from datetime import datetime
-import re
+from src.helper import extract_country
+from src.helper import extract_ticker
 
 load_dotenv()
 RAPIDAPI_KEY = os.environ.get("RAPIDAPI_KEY")
@@ -86,8 +87,7 @@ def get_stock_data(ticker="AAPL"):
         
         if "Time Series (Daily)" not in data:
             return {"error": "Invalid stock data from Alphavantage"}
-        
-        # Get the latest trading day
+
         latest_date = sorted(data["Time Series (Daily)"].keys())[-1]
         latest_data = data["Time Series (Daily)"][latest_date]
         
@@ -102,41 +102,53 @@ def get_stock_data(ticker="AAPL"):
 
 
 
-
-def get_wsj_news(search_query="markets"):
-    """Get news from Wall Street Journal API"""
+def get_seekingalpha_news(search_query="markets"):
+    """Get financial news from Seeking Alpha API"""
     headers = RAPIDAPI_HEADERS.copy()
-    headers["X-RapidAPI-Host"] = "wsj-news.p.rapidapi.com"
-    
+    headers["X-RapidAPI-Host"] = "seeking-alpha.p.rapidapi.com"
+
+    params = {
+        "filter[slug]": "market-news",
+        "q": search_query,
+        "page[size]": 5,
+        "page[number]": 1,
+        "since": "0"
+    }
+
     try:
         response = requests.get(
-            "https://wsj-news.p.rapidapi.com/search",
+            "https://seeking-alpha.p.rapidapi.com/news/v2/list",
             headers=headers,
-            params={
-                "query": search_query,
-                "limit": "5",
-                "language": "en"
-            },
+            params=params,
             timeout=10
         )
         response.raise_for_status()
         data = response.json()
-        
-        articles = data.get('articles', [])
-        if not articles:
+
+        if not data.get('data'):
             return {"error": "No articles found"}
-            
+
+        articles = []
+        for item in data['data']:
+            attributes = item.get('attributes', {})
+            articles.append({
+                "title": attributes.get('title', 'No title'),
+                "content": attributes.get('content', '')[:200] + "...",
+                "url": attributes.get('uri'),
+                "published": attributes.get('publishOn'),
+                "symbols": [s['symbol'] for s in attributes.get('symbols', [])]
+            })
+
         return {
             "count": len(articles),
-            "articles": [{
-                "title": article.get('title', 'No title'),
-                "url": article.get('url', '#'),
-                "source": "Wall Street Journal",
-                "published": article.get('publishedAt', 'N/A')
-            } for article in articles]
+            "articles": articles
         }
+
+    except requests.HTTPError as e:
+        return {"error": f"API Error {e.response.status_code}: {str(e)}"}
     except Exception as e:
-        return {"error": str(e)}
+        return {"error": f"General error: {str(e)}"}
+
 
 
 
@@ -235,55 +247,6 @@ def get_crypto_data(symbol='BTC'):
     except Exception as e:
         return {"error": f"General error: {str(e)}"}
 
-# ----------------------------------------------------------------------------------------------------------------------------------------------
-
-def extract_ticker(query):
-    """Smart ticker extraction with fallback mechanisms"""
-    
-    # Expanded ticker map with common symbols
-    ticker_map = {
-        # Cryptocurrencies (Top 20)
-        'bitcoin': 'BTC', 'btc': 'BTC',
-        'ethereum': 'ETH', 'eth': 'ETH',
-        'tether': 'USDT', 'usdt': 'USDT',
-        'bnb': 'BNB', 'binance coin': 'BNB',
-        'solana': 'SOL', 'sol': 'SOL',
-        
-        # Stocks (DJIA components + popular tech)
-        'apple': 'AAPL', 'aapl': 'AAPL',
-        'microsoft': 'MSFT', 'msft': 'MSFT',
-        'amazon': 'AMZN', 'amzn': 'AMZN',
-        'google': 'GOOGL', 'googl': 'GOOGL',
-        'tesla': 'TSLA', 'tsla': 'TSLA',
-        'nvidia': 'NVDA', 'nvda': 'NVDA',
-        'meta': 'META', 'meta': 'META',
-        
-        # Metals and Commodities
-        'gold': 'XAU', 'silver': 'XAG',
-        'platinum': 'XPT', 'palladium': 'XPD',
-        'oil': 'CL', 'crude': 'CL',
-    }
-    
-    # Step 1: Direct match from known names
-    q_lower = query.lower()
-    for keyword, symbol in ticker_map.items():
-        if keyword in q_lower:
-            return symbol
-    
-    # Step 2: Regex pattern for ticker-like symbols
-    ticker_pattern = r'\b[A-Z]{1,5}\b'
-    matches = re.findall(ticker_pattern, query)
-    if matches:
-        return max(matches, key=len)
-    
-    # Step 3: Extract last noun phrase
-    words = query.replace('?', '').split()
-    for word in reversed(words):
-        if word.lower() not in {'price', 'stock', 'value', 'of'}:
-            return word.upper()
-    
-    # Final fallback
-    return "BTC" 
 
 # ------------------------------------------------------------------------------------------------------------------------------------------------
 
@@ -311,14 +274,16 @@ def determine_api_calls(query):
             print(err_msg)
             responses["stock_data"] = {"error": err_msg}
 
+
     # News data
     if any(k in q_lower for k in ["news", "update", "headlines"]):
-        news_data = get_wsj_news(query)
+        news_data = get_seekingalpha_news(query)
         if isinstance(news_data, dict) and "error" in news_data:
             api_status["financial_news"] = f"Error: {news_data['error']}"
         else:
             responses["financial_news"] = news_data
             api_status["financial_news"] = "Success"
+
 
     # Metal prices
     if any(k in q_lower for k in ["metal", "gold", "silver", "platinum", "palladium", "precious"]):
@@ -458,14 +423,16 @@ def build_prompt(query, index_name, api_responses=None):
                             f"Last Updated: {response.get('date', 'N/A')}"
                         )
 
-                    # WSJ News formatting
+                    # Seeking Alpha News formatting
                     elif api_name == "financial_news" and "articles" in response:
                         news_items = []
                         for item in response.get("articles", [])[:3]:
+                            symbols = f"({', '.join(item.get('symbols', []))})" if item.get('symbols') else ""
                             news_items.append(
-                                f"- {item.get('title', 'No title')} ({item.get('source', 'Wall Street Journal')})"
+                                f"- {item.get('title', 'No title')} {symbols}"
                             )
                         cleaned_responses.append("Latest Financial News:\n" + "\n".join(news_items))
+
 
                     # Alpha Vantage Forex Data formatting
                     elif api_name == "forex" and "rate" in response:

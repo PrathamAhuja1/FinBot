@@ -9,6 +9,7 @@ from langchain.text_splitter import RecursiveCharacterTextSplitter
 from langchain_huggingface import HuggingFaceEmbeddings
 from langchain_community.vectorstores import Pinecone
 from dotenv import load_dotenv
+import re
 
 load_dotenv()
 
@@ -99,3 +100,128 @@ def query_index(query: str, index_name: str, model_name: str = "sentence-transfo
     results = vectorstore.similarity_search(query, k=top_k)
     
     return results
+
+
+
+def extract_country(query):
+    """Extract a country code from the query if a known country is mentioned."""
+    country_mapping = {
+        # North America
+        "usa": "US", "us": "US", "united states": "US",
+        "canada": "CA",
+        "mexico": "MX",
+        # South America
+        "brazil": "BR",
+        "argentina": "AR",
+        "colombia": "CO",
+        "chile": "CL",
+        "peru": "PE",
+        "venezuela": "VE",
+        # Europe
+        "uk": "GB", "united kingdom": "GB",
+        "ireland": "IE",
+        "france": "FR",
+        "germany": "DE",
+        "italy": "IT",
+        "spain": "ES",
+        "netherlands": "NL",
+        "belgium": "BE",
+        "switzerland": "CH",
+        "austria": "AT",
+        "sweden": "SE",
+        "norway": "NO",
+        "finland": "FI",
+        "denmark": "DK",
+        "poland": "PL",
+        "czech republic": "CZ",
+        "greece": "GR",
+        "portugal": "PT",
+        "russia": "RU",
+        # Asia
+        "china": "CN",
+        "japan": "JP",
+        "south korea": "KR", "korea": "KR",
+        "india": "IN",
+        "pakistan": "PK",
+        "bangladesh": "BD",
+        "sri lanka": "LK",
+        "nepal": "NP",
+        "indonesia": "ID",
+        "malaysia": "MY",
+        "singapore": "SG",
+        "thailand": "TH",
+        "vietnam": "VN",
+        "philippines": "PH",
+        "iran": "IR",
+        "iraq": "IQ",
+        # Middle East
+        "israel": "IL",
+        "turkey": "TR",
+        "saudi arabia": "SA",
+        "united arab emirates": "AE", "uae": "AE",
+        "qatar": "QA",
+        "kuwait": "KW",
+        "oman": "OM",
+        # Oceania
+        "australia": "AU",
+        "new zealand": "NZ",
+        # Africa
+        "south africa": "ZA",
+        "nigeria": "NG",
+        "egypt": "EG"
+    }
+    query_lower = query.lower()
+    for country_name, code in country_mapping.items():
+        if country_name in query_lower:
+            return code
+    return None
+
+
+
+def extract_ticker(query):
+    """Smart ticker extraction with fallback mechanisms"""
+    
+    # Expanded ticker map with common symbols
+    ticker_map = {
+        # Cryptocurrencies
+        'bitcoin': 'BTC', 'btc': 'BTC',
+        'ethereum': 'ETH', 'eth': 'ETH',
+        'tether': 'USDT', 'usdt': 'USDT',
+        'bnb': 'BNB', 'binance coin': 'BNB',
+        'solana': 'SOL', 'sol': 'SOL',
+        
+        # Stocks (DJIA components + popular tech)
+        'apple': 'AAPL', 'aapl': 'AAPL',
+        'microsoft': 'MSFT', 'msft': 'MSFT',
+        'amazon': 'AMZN', 'amzn': 'AMZN',
+        'google': 'GOOGL', 'googl': 'GOOGL',
+        'tesla': 'TSLA', 'tsla': 'TSLA',
+        'nvidia': 'NVDA', 'nvda': 'NVDA',
+        'meta': 'META', 'meta': 'META',
+        
+        # Metals and Commodities
+        'gold': 'XAU', 'silver': 'XAG',
+        'platinum': 'XPT', 'palladium': 'XPD',
+        'oil': 'CL', 'crude': 'CL',
+    }
+    
+    # Step 1: Direct match from known names
+    q_lower = query.lower()
+    for keyword, symbol in ticker_map.items():
+        if keyword in q_lower:
+            return symbol
+    
+    # Step 2: Regex pattern for ticker-like symbols
+    ticker_pattern = r'\b[A-Z]{1,5}\b'
+    matches = re.findall(ticker_pattern, query)
+    if matches:
+        return max(matches, key=len)
+    
+    # Step 3: Extract last noun phrase
+    words = query.replace('?', '').split()
+    for word in reversed(words):
+        if word.lower() not in {'price', 'stock', 'value', 'of'}:
+            return word.upper()
+    
+    # Final fallback
+    return "BTC" 

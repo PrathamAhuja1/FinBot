@@ -61,37 +61,43 @@ if user_input:
             # Get complete response
             response = generate_final_answer(user_input, "finance")
             
+            # Debug print to terminal
+            print("RESPONSE RECEIVED:", response.keys())
+            
             # Always display main answer
             with response_container:
                 st.markdown("### Financial Analysis")
-                if response['answer']:
+                if response.get('answer'):
                     st.markdown(f"<div class='response-box'>{response['answer']}</div>", 
                                unsafe_allow_html=True)
                 else:
                     st.error("No answer could be generated. Please try again.")
                 
-                # Add to history
+            if response.get('answer') and not response.get('answer').startswith("An error occurred"):
                 st.session_state.history.append({
                     "query": user_input,
-                    "answer": response['answer'],
-                    "context": response['internal_context'],
-                    "api_data": response['api_data']
+                    "answer": response.get('answer', "No response generated"),
+                    "context": response.get('internal_context', ""),
+                    "api_data": response.get('api_data', {})
                 })
 
             # Debug information
             with debug_container.expander("Technical Details"):
+                st.markdown("**Response Structure:**")
+                st.write(list(response.keys()))
+                
                 st.markdown("**Internal Context:**")
-                st.markdown(f"<div class='debug-box'>{response['internal_context']}</div>", 
-                           unsafe_allow_html=True)
+                st.markdown(f"<div class='debug-box'>{response.get('internal_context', '')}</div>", 
+                        unsafe_allow_html=True)
                 
                 st.markdown("**API Responses:**")
-                st.json(response['api_data'])
+                st.json(response.get('api_data', {}))
                 
-                st.markdown("**Full Processing:**")
-                st.write(response)
+                st.markdown("**Error Information:**")
+                st.write(response.get('error', 'No errors reported'))
 
         except Exception as e:
-            st.error(f"Error: {str(e)}")
+            st.error(f"Error processing request: {str(e)}")
             st.markdown(f"```\n{traceback.format_exc()}\n```")
 
 # History display

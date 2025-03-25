@@ -5,11 +5,16 @@ from src.helper import query_index
 from transformers import AutoModelForCausalLM, AutoTokenizer, pipeline,BitsAndBytesConfig
 import torch
 from datetime import datetime
-from src.helper import extract_country
 from src.helper import extract_ticker
-from src.helper import get_country_name
-import re
+from src.helper import get_internal_context
+# ------------------------------------------------------------------------------------------------------------------------------------------------
 
+import asyncio
+import platform
+if platform.system() == "Windows":
+    asyncio.set_event_loop_policy(asyncio.WindowsSelectorEventLoopPolicy())
+
+# ------------------------------------------------------------------------------------------------------------------------------------------------
 
 
 load_dotenv()
@@ -17,12 +22,6 @@ RAPIDAPI_KEY = os.environ.get("RAPIDAPI_KEY")
 INDEX_NAME = "finance"
 SERPAPI_KEY=os.environ.get("SERPAPI_KEY")
 METALAPI_KEY=os.environ.get("METALAPI_KEY")
-
-
-import asyncio
-import platform
-if platform.system() == "Windows":
-    asyncio.set_event_loop_policy(asyncio.WindowsSelectorEventLoopPolicy())
 
 # ------------------------------------------------------------------------------------------------------------------------------------------------
 
@@ -339,27 +338,6 @@ def determine_api_calls(query):
 
 # ------------------------------------------------------------------------------------------------------------------------------------------------
 
-def get_internal_context(query, index_name):
-    try:
-        internal_results = query_index(query, index_name)
-        if internal_results:
-            # Check what attributes the results have
-            if hasattr(internal_results[0], 'content'):
-                context = " ".join([doc.content for doc in internal_results])
-            elif hasattr(internal_results[0], 'text'):
-                context = " ".join([doc.text for doc in internal_results])
-            elif hasattr(internal_results[0], 'page_content'):
-                context = " ".join([doc.page_content for doc in internal_results])
-            else:
-                context = str(internal_results)
-        else:
-            context = ""
-        return context
-    except Exception as e:
-        print(f"Error in get_internal_context: {str(e)}")
-        return ""
-
-# ------------------------------------------------------------------------------------------------------------------------------------------------
 
 def load_model():
     MODEL_NAME = "microsoft/Phi-4-mini-instruct"
@@ -403,10 +381,31 @@ def build_prompt(query, index_name, api_responses=None):
     try:
         internal_context = get_internal_context(query, index_name)
 
+        if internal_context:
+            context_parts = internal_context.split('. ')
+            limited_context = []
+            current_length = 0
+            max_context_length = 750
+            
+
+            for part in context_parts:
+                if current_length + len(part) < max_context_length:
+                    limited_context.append(part)
+                    current_length += len(part)
+                else:
+                    break
+
+            internal_context = '. '.join(limited_context) + '.'
+
         if api_responses is None:
             api_responses = determine_api_calls(query)
 
         cleaned_responses = []
+
+        if internal_context and internal_context.strip():
+            cleaned_responses.append(f"Internal Contextual Information:\n{internal_context}")
+
+
         for api_name, response in api_responses.items():
             if api_name == "_api_status" or api_name == "error":
                 continue 
@@ -498,18 +497,16 @@ def build_prompt(query, index_name, api_responses=None):
 
         prompt_template = (
             f"<|begin_of_text|><|start_header_id|>system<|end_header_id|>\n"
-            f"You are a financial expert assistant providing detailed, comprehensive answers. "
-            f"Always analyze all available data and provide thorough explanations with specific insights. "
-            f"Include market analysis, trends, and actionable recommendations when appropriate. "
-            f"Your answers should be detailed, complete, and directly address the user's question.\n\n"
-            f"Internal Context Information:\n{internal_context[:1500]}\n\n"
-            f"External Data Sources:\n" + "\n".join(cleaned_responses) + "\n\n"
+            f"You are a comprehensive financial expert assistant providing detailed answers. "
+            f"Integrate both external API data and internal contextual information to create a holistic response. "
+            f"Always analyze available data, provide thorough explanations, market insights, and actionable recommendations.\n\n"
             f"Guidelines:\n"
-            f"1. Start with a concise summary answering the query directly\n"
-            f"2. Use exact numbers from data when available\n"
-            f"3. Analyze trends using historical context\n"
-            f"4. Provide risk assessment and recommendations\n"
-            f"5. Mention data limitations if any\n"
+            f"1. Synthesize information from both external sources and internal context\n"
+            f"2. Use precise numerical data when available\n"
+            f"3. Provide contextual analysis and trend interpretations\n"
+            f"4. Include risk assessments and strategic recommendations\n"
+            f"5. Clearly distinguish between API-sourced and contextual information\n\n"
+            f"Data Sources:\n" + "\n\n".join(cleaned_responses) + "\n\n"
             f"<|start_header_id|>user<|end_header_id|>\n"
             f"{query}\n"
             f"<|start_header_id|>assistant<|end_header_id|>\n"
@@ -526,6 +523,7 @@ def build_prompt(query, index_name, api_responses=None):
 
 
 def generate_final_answer(query, index_name):
+    
     if not generator:
         return {
             "answer": "Model not loaded properly. Please check server logs.",
@@ -540,7 +538,7 @@ def generate_final_answer(query, index_name):
         internal_context = get_internal_context(query, index_name)
 
         api_responses = determine_api_calls(query)
-        
+
         prompt = build_prompt(query, index_name, api_responses)
 
         print(f"\n{'='*40} DEBUG PROMPT {'='*40}\n{prompt}\n{'='*94}\n")

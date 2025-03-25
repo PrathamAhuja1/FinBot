@@ -103,141 +103,9 @@ def query_index(query: str, index_name: str, model_name: str = "sentence-transfo
 
 
 
-def extract_country(query):
-    """Extract a country code from the query if a known country is mentioned."""
-    country_mapping = {
-        # North America
-        "usa": "US", "us": "US", "united states": "US",
-        "canada": "CA",
-        "mexico": "MX",
-        # South America
-        "brazil": "BR",
-        "argentina": "AR",
-        "colombia": "CO",
-        "chile": "CL",
-        "peru": "PE",
-        "venezuela": "VE",
-        # Europe
-        "uk": "GB", "united kingdom": "GB",
-        "ireland": "IE",
-        "france": "FR",
-        "germany": "DE",
-        "italy": "IT",
-        "spain": "ES",
-        "netherlands": "NL",
-        "belgium": "BE",
-        "switzerland": "CH",
-        "austria": "AT",
-        "sweden": "SE",
-        "norway": "NO",
-        "finland": "FI",
-        "denmark": "DK",
-        "poland": "PL",
-        "czech republic": "CZ",
-        "greece": "GR",
-        "portugal": "PT",
-        "russia": "RU",
-        # Asia
-        "china": "CN",
-        "japan": "JP",
-        "south korea": "KR", "korea": "KR",
-        "india": "IN",
-        "pakistan": "PK",
-        "bangladesh": "BD",
-        "sri lanka": "LK",
-        "nepal": "NP",
-        "indonesia": "ID",
-        "malaysia": "MY",
-        "singapore": "SG",
-        "thailand": "TH",
-        "vietnam": "VN",
-        "philippines": "PH",
-        "iran": "IR",
-        "iraq": "IQ",
-        # Middle East
-        "israel": "IL",
-        "turkey": "TR",
-        "saudi arabia": "SA",
-        "united arab emirates": "AE", "uae": "AE",
-        "qatar": "QA",
-        "kuwait": "KW",
-        "oman": "OM",
-        # Oceania
-        "australia": "AU",
-        "new zealand": "NZ",
-        # Africa
-        "south africa": "ZA",
-        "nigeria": "NG",
-        "egypt": "EG"
-    }
-    query_lower = query.lower()
-    for country_name, code in country_mapping.items():
-        if country_name in query_lower:
-            return code
-    return None
-
-
-
-def get_country_name(country_code):
-    """Get full country name from ISO 2-letter code"""
-    reverse_country_mapping = {
-        # North America
-        "US": "United States",
-        "CA": "Canada",
-        "MX": "Mexico",
-        # South America
-        "BR": "Brazil",
-        "AR": "Argentina",
-        "CO": "Colombia",
-        "CL": "Chile",
-        "PE": "Peru",
-        "VE": "Venezuela",
-        # Europe
-        "GB": "United Kingdom",
-        "FR": "France",
-        "DE": "Germany",
-        "IT": "Italy",
-        "ES": "Spain",
-        "NL": "Netherlands",
-        "CH": "Switzerland",
-        "SE": "Sweden",
-        "NO": "Norway",
-        "FI": "Finland",
-        "DK": "Denmark",
-        "PL": "Poland",
-        "RU": "Russia",
-        # Asia
-        "CN": "China",
-        "JP": "Japan",
-        "KR": "South Korea",
-        "IN": "India",
-        "SG": "Singapore",
-        "MY": "Malaysia",
-        "TH": "Thailand",
-        "VN": "Vietnam",
-        "PH": "Philippines",
-        # Middle East
-        "AE": "United Arab Emirates",
-        "SA": "Saudi Arabia",
-        "QA": "Qatar",
-        "KW": "Kuwait",
-        # Oceania
-        "AU": "Australia",
-        "NZ": "New Zealand",
-        # Africa
-        "ZA": "South Africa",
-        "NG": "Nigeria",
-        "EG": "Egypt"
-    }
-    return reverse_country_mapping.get(country_code.upper(), None)
-
-
-
-
 def extract_ticker(query):
     """Smart ticker extraction with fallback mechanisms"""
-    
-    # Expanded ticker map with common symbols
+
     ticker_map = {
         # Cryptocurrencies
         'bitcoin': 'BTC', 'btc': 'BTC',
@@ -281,3 +149,85 @@ def extract_ticker(query):
     
     # Final fallback
     return "BTC" 
+
+
+
+def get_internal_context(query, index_name):
+    """
+    Retrieve and process internal context with improved coherence and relevance.
+
+    """
+    try:
+        # Retrieve internal results from the index
+        internal_results = query_index(query, index_name)
+        
+        if not internal_results:
+            return ""
+        
+        # Extract content based on available attributes
+        try:
+            if hasattr(internal_results[0], 'content'):
+                documents = [doc.content for doc in internal_results]
+            elif hasattr(internal_results[0], 'text'):
+                documents = [doc.text for doc in internal_results]
+            elif hasattr(internal_results[0], 'page_content'):
+                documents = [doc.page_content for doc in internal_results]
+            else:
+                documents = [str(doc) for doc in internal_results]
+        except Exception as e:
+            print(f"Error extracting document content: {str(e)}")
+            return ""
+
+        combined_text = " ".join(documents)
+
+        sentences = combined_text.replace('\n', ' ').split('. ')
+        
+        # Calculate sentence relevance
+        def sentence_relevance_score(sentence, query):
+            """Calculate sentence relevance based on keyword matching."""
+            query_words = set(query.lower().split())
+            sentence_words = set(sentence.lower().split())
+            
+            # Prioritize sentences with exact phrase matches
+            exact_phrase_score = 10 if any(phrase in sentence.lower() for phrase in [
+                'financial', 'investment', 'market', 'stock', 'economy', 
+                'trading', 'finance', 'economic', 'company', 'business'
+            ]) else 0
+            
+            # Calculate keyword intersection score
+            keyword_score = len(query_words.intersection(sentence_words))
+            
+            return exact_phrase_score + keyword_score
+        
+        # Sort sentences by relevance to the query
+        scored_sentences = [
+            (sentence.strip(), sentence_relevance_score(sentence, query)) 
+            for sentence in sentences 
+            if sentence.strip() and len(sentence.strip()) > 30
+        ]
+        
+        # Sort sentences by relevance score in descending order
+        sorted_sentences = sorted(scored_sentences, key=lambda x: x[1], reverse=True)
+        
+        # Select top relevant sentences
+        max_context_length = 1200 
+        current_length = 0
+        selected_sentences = []
+        
+        for sentence, score in sorted_sentences:
+            if current_length + len(sentence) <= max_context_length:
+                selected_sentences.append(sentence)
+                current_length += len(sentence)
+            else:
+                break
+
+        context = '. '.join(selected_sentences)
+
+        if context and not context.endswith('.'):
+            context += '.'
+
+        return context if len(context) > 100 else ""
+    
+    except Exception as e:
+        print(f"Error in get_internal_context: {str(e)}")
+        return ""

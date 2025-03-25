@@ -466,13 +466,16 @@ def build_prompt(query, index_name, api_responses=None):
                         else:
                             items = response.get("results", [])
                             if items:
-                                search_items = [
-                                    f"- {item.get('title', 'No title')}\n  {item.get('link')}"
-                                    for item in items[:3]
-                                ]
-                                cleaned_responses.append("Web Search Results:\n" + "\n".join(search_items))
+                                search_items = []
+                                for item in items[:3]:
+                                    content = item.get('snippet') or item.get('title') or "No description available"
+                                    link = item.get('link') or "No URL available"
+                                    search_items.append(
+                                        f"• {content}\n  Source: {link}"
+                                    )
+                                cleaned_responses.append("Web Research Results:\n" + "\n".join(search_items))
                             else:
-                                cleaned_responses.append("Web Search: No relevant results found")
+                                cleaned_responses.append("Web Research: No relevant results found")
 
                              
                                 

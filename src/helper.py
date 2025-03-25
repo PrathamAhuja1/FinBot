@@ -178,6 +178,62 @@ def extract_country(query):
 
 
 
+def get_country_name(country_code):
+    """Get full country name from ISO 2-letter code"""
+    reverse_country_mapping = {
+        # North America
+        "US": "United States",
+        "CA": "Canada",
+        "MX": "Mexico",
+        # South America
+        "BR": "Brazil",
+        "AR": "Argentina",
+        "CO": "Colombia",
+        "CL": "Chile",
+        "PE": "Peru",
+        "VE": "Venezuela",
+        # Europe
+        "GB": "United Kingdom",
+        "FR": "France",
+        "DE": "Germany",
+        "IT": "Italy",
+        "ES": "Spain",
+        "NL": "Netherlands",
+        "CH": "Switzerland",
+        "SE": "Sweden",
+        "NO": "Norway",
+        "FI": "Finland",
+        "DK": "Denmark",
+        "PL": "Poland",
+        "RU": "Russia",
+        # Asia
+        "CN": "China",
+        "JP": "Japan",
+        "KR": "South Korea",
+        "IN": "India",
+        "SG": "Singapore",
+        "MY": "Malaysia",
+        "TH": "Thailand",
+        "VN": "Vietnam",
+        "PH": "Philippines",
+        # Middle East
+        "AE": "United Arab Emirates",
+        "SA": "Saudi Arabia",
+        "QA": "Qatar",
+        "KW": "Kuwait",
+        # Oceania
+        "AU": "Australia",
+        "NZ": "New Zealand",
+        # Africa
+        "ZA": "South Africa",
+        "NG": "Nigeria",
+        "EG": "Egypt"
+    }
+    return reverse_country_mapping.get(country_code.upper(), None)
+
+
+
+
 def extract_ticker(query):
     """Smart ticker extraction with fallback mechanisms"""
     

@@ -7,12 +7,17 @@ import torch
 from datetime import datetime
 from src.helper import extract_country
 from src.helper import extract_ticker
+from src.helper import get_country_name
+import re
+
+
 
 load_dotenv()
 RAPIDAPI_KEY = os.environ.get("RAPIDAPI_KEY")
 INDEX_NAME = "finance"
 SERPAPI_KEY=os.environ.get("SERPAPI_KEY")
 METALAPI_KEY=os.environ.get("METALAPI_KEY")
+
 
 import asyncio
 import platform
@@ -102,27 +107,20 @@ def get_stock_data(ticker="AAPL"):
 
 
 
-def get_seekingalpha_news(search_query="markets", country=None):
-    """Get financial news with proper country filtering"""
-    headers = RAPIDAPI_HEADERS.copy()
-    headers["X-RapidAPI-Host"] = "seeking-alpha.p.rapidapi.com"
-
-    # Build targeted search query
-    final_query = search_query
-    if country:
-        final_query += f" {country} market"  # Better targeting for country-specific news
-
-    params = {
-        "filter[slug]": "market-news",
-        "q": final_query,
-        "page[size]": 15,  # Increased to max allowed articles
-        "page[number]": 1,
-        "sort": "-latest"
+def get_google_search_results(query):
+    """Fetches search results from the Google Search API"""
+    headers = {
+        "X-RapidAPI-Key": RAPIDAPI_KEY,
+        "X-RapidAPI-Host": "google-search74.p.rapidapi.com"
     }
-
+    params = {
+        "query": query,
+        "limit": "5",
+        "related_keywords": "false"
+    }
     try:
         response = requests.get(
-            "https://seeking-alpha.p.rapidapi.com/news/v2/list",
+            "https://google-search74.p.rapidapi.com/",
             headers=headers,
             params=params,
             timeout=15
@@ -130,26 +128,21 @@ def get_seekingalpha_news(search_query="markets", country=None):
         response.raise_for_status()
         data = response.json()
 
-        articles = []
-        for item in data.get('data', []):
-            attributes = item.get('attributes', {})
-            articles.append({
-                "title": attributes.get('title', 'No title'),
-                "url": attributes.get('uri'),
-                "published": attributes.get('publishOn'),
-                "symbols": [s['symbol'] for s in attributes.get('symbols', [])]
-            })
-
+        results = data.get("results") or data.get("organic_results") or []
+        
         return {
-            "count": len(articles),
-            "articles": articles,
-            "query_used": final_query
+            "count": len(results),
+            "results": [{
+                "title": result.get("title", "No title"),
+                "link": result.get("url") or result.get("link"),
+                "snippet": result.get("snippet") or result.get("description")
+            } for result in results],
+            "query_used": query
         }
-
     except requests.HTTPError as e:
-        return {"error": f"API Error {e.response.status_code}: {str(e)}"}
+        return {"error": f"Google Search Error {e.response.status_code}: {str(e)}"}
     except Exception as e:
-        return {"error": f"General error: {str(e)}"}
+        return {"error": f"Google Search Error: {str(e)}"}
 
 
 
@@ -257,7 +250,7 @@ def determine_api_calls(query):
     q_lower = query.lower()
 
     # Stock data
-    if any(k in q_lower for k in ["stock", "share", "equity", "price", "market", "ticker"]) and not any(k in q_lower for k in ["bitcoin", "ethereum", "btc", "eth", "crypto"]):
+    if any(k in q_lower for k in ["stock", "share", "price", "market", "ticker"]) and not any(k in q_lower for k in ["bitcoin", "ethereum", "btc", "eth", "crypto"]):
         ticker = extract_ticker(query)
         print(f"Attempting to fetch stock data for ticker: {ticker}")
         try:
@@ -275,24 +268,6 @@ def determine_api_calls(query):
             print(err_msg)
             responses["stock_data"] = {"error": err_msg}
 
-
-    # News data
-    if any(k in q_lower for k in ["news", "update", "headlines"]):
-        country_code = extract_country(query)
-        country_name = {
-            "IN": "India", "US": "USA", "UK": "UK", "CA": "Canada",
-            "AU": "Australia", "NZ": "New Zealand", "ZA": "South Africa", "global": "global",
-        }.get(country_code, None)
-        
-        news_data = get_seekingalpha_news(
-            search_query=query,
-            country=country_name
-        )
-        if isinstance(news_data, dict) and "error" in news_data:
-            api_status["financial_news"] = f"Error: {news_data['error']}"
-        else:
-            responses["financial_news"] = news_data
-            api_status["financial_news"] = "Success"
 
 
     # Metal prices
@@ -339,13 +314,27 @@ def determine_api_calls(query):
 
 
     responses["_api_status"] = api_status
-    
+
+
+    # Google Search
+    if len(responses) <= 1:
+        print("Executing Google Search API.")
+        google_data = get_google_search_results(query)
+        if "error" in google_data:
+            api_status["google_search"] = google_data["error"]
+        else:
+            responses["google_search"] = google_data
+            api_status["google_search"] = "Success"
+
+    responses["_api_status"] = api_status
+
     if len(responses) <= 1:
         print("WARNING: No successful API calls were made for this query")
         responses["error"] = "No financial data sources could be accessed for this query"
-    
+
     print(f"API calls completed with status: {api_status}")
     return responses
+
 
 
 # ------------------------------------------------------------------------------------------------------------------------------------------------
@@ -410,7 +399,7 @@ generator = load_model()
 # ------------------------------------------------------------------------------------------------------------------------------------------------
 
 def build_prompt(query, index_name, api_responses=None):
-    """Build a prompt with proper context handling for Phi-4 using Alpha Vantage & WSJ News API."""
+    """Build a prompt with proper context handling for Phi-4 """
     try:
         internal_context = get_internal_context(query, index_name)
 
@@ -424,6 +413,7 @@ def build_prompt(query, index_name, api_responses=None):
                 
             if isinstance(response, dict):
                 try:
+
                     # Alpha Vantage Stock Data formatting
                     if api_name == "stock_data" and "price" in response:
                         cleaned_responses.append(
@@ -433,15 +423,6 @@ def build_prompt(query, index_name, api_responses=None):
                             f"Last Updated: {response.get('date', 'N/A')}"
                         )
 
-                    # Seeking Alpha News formatting
-                    elif api_name == "financial_news" and "articles" in response:
-                        news_items = []
-                        for item in response.get("articles", [])[:10]:
-                            symbols = f"({', '.join(item.get('symbols', []))})" if item.get('symbols') else ""
-                            news_items.append(
-                                f"- {item.get('title', 'No title')} {symbols}"
-                            )
-                        cleaned_responses.append("Latest Financial News:\n" + "\n".join(news_items))
 
                     # Alpha Vantage Forex Data formatting
                     elif api_name == "forex" and "rate" in response:
@@ -455,6 +436,7 @@ def build_prompt(query, index_name, api_responses=None):
                             f"Last Updated: {response.get('timestamp', 'N/A')}"
                         )
 
+
                     # Metal Prices formatting
                     elif api_name == "metal_prices":
                         cleaned_responses.append(
@@ -463,6 +445,7 @@ def build_prompt(query, index_name, api_responses=None):
                             f"{response.get('rate', 0):.4f} {response.get('currency', 'USD')} "
                             f"{response.get('unit', 'per gram')}"
                         )
+
 
                     # Crypto Data formatting
                     elif api_name == "crypto" and "price" in response:
@@ -475,10 +458,29 @@ def build_prompt(query, index_name, api_responses=None):
                             f"All Time High: ${response.get('allTimeHigh', 0):,.2f}"
                         )
 
+
+                    # Google Search formatting
+                    elif api_name == "google_search":
+                        if "error" in response:
+                            cleaned_responses.append(f"Google Search Error: {response['error']}")
+                        else:
+                            items = response.get("results", [])
+                            if items:
+                                search_items = [
+                                    f"- {item.get('title', 'No title')}\n  {item.get('link')}"
+                                    for item in items[:3]
+                                ]
+                                cleaned_responses.append("Web Search Results:\n" + "\n".join(search_items))
+                            else:
+                                cleaned_responses.append("Web Search: No relevant results found")
+
+                             
+                                
                     else:
                         important_keys = ['price', 'rate', 'value', 'name', 'symbol']
                         relevant_data = [
-                            f"{k}: {v}" for k, v in response.items() if k in important_keys and not isinstance(v, (dict, list))
+                            f"{k}: {v}" for k, v in response.items() 
+                            if k in important_keys and not isinstance(v, (dict, list))
                         ]
                         if relevant_data:
                             cleaned_responses.append(f"{api_name}:\n" + "\n".join(relevant_data))
@@ -488,7 +490,6 @@ def build_prompt(query, index_name, api_responses=None):
                 except Exception as e:
                     print(f"Error formatting {api_name} response: {str(e)}")
                     cleaned_responses.append(f"{api_name}: Error processing data")
-
             else:
                 cleaned_responses.append(f"{api_name}: {str(response)[:300]}")
 
@@ -498,11 +499,8 @@ def build_prompt(query, index_name, api_responses=None):
             f"Always analyze all available data and provide thorough explanations with specific insights. "
             f"Include market analysis, trends, and actionable recommendations when appropriate. "
             f"Your answers should be detailed, complete, and directly address the user's question.\n\n"
-            
             f"Internal Context Information:\n{internal_context[:1500]}\n\n"
-            
             f"External Data Sources:\n" + "\n".join(cleaned_responses) + "\n\n"
-            
             f"Guidelines:\n"
             f"1. Start with a concise summary answering the query directly\n"
             f"2. Use exact numbers from data when available\n"
@@ -515,7 +513,7 @@ def build_prompt(query, index_name, api_responses=None):
         )
         
         return prompt_template
-    
+
     except Exception as e:
         print(f"Prompt building error: {str(e)}")
         return f"System Error: Failed to build prompt. Original query: {query}"

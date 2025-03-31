@@ -533,11 +533,8 @@ def generate_final_answer(query, index_name):
         }
     
     try:
-
         internal_context = get_internal_context(query, index_name)
-
         api_responses = determine_api_calls(query)
-
         prompt = build_prompt(query, index_name, api_responses)
 
         print(f"\n{'='*40} DEBUG PROMPT {'='*40}\n{prompt}\n{'='*94}\n")
@@ -564,7 +561,9 @@ def generate_final_answer(query, index_name):
         else:
             clean_answer = full_response.replace(prompt, "").strip()
 
+        # Properly format the response for HTML display
         clean_answer = "\n".join([line.strip() for line in clean_answer.split("\n") if line.strip()])
+        clean_answer = clean_answer.replace("\n", "<br>")  # Convert newlines to HTML line breaks
 
         return {
             "answer": clean_answer,

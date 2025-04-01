@@ -561,9 +561,8 @@ def generate_final_answer(query, index_name):
         else:
             clean_answer = full_response.replace(prompt, "").strip()
 
-        # Properly format the response for HTML display
         clean_answer = "\n".join([line.strip() for line in clean_answer.split("\n") if line.strip()])
-        clean_answer = clean_answer.replace("\n", "<br>")  # Convert newlines to HTML line breaks
+        clean_answer = clean_answer.replace("\n", "<br>")
 
         return {
             "answer": clean_answer,

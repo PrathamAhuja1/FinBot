@@ -465,12 +465,12 @@ def display_suggestions():
         col_idx = i % 3
         with cols[col_idx]:
             if st.button(suggestion, key=f"suggestion_{i}"):
-                # Clear empty state if it's the first interaction
+
                 if not st.session_state.messages:
                     st.session_state.messages = []
-                # Add user message immediately
+
                 st.session_state.messages.append({"content": suggestion, "is_user": True})
-                # Store query and force processing
+
                 st.session_state.pending_query = suggestion
                 st.experimental_rerun()
     st.markdown('</div>', unsafe_allow_html=True)
@@ -497,13 +497,13 @@ def main():
     </div>
     """, unsafe_allow_html=True)
 
-    # Initialize session state
+
     if "messages" not in st.session_state:
         st.session_state.messages = []
     if "pending_query" not in st.session_state:
         st.session_state.pending_query = None
 
-    # Always render chat history first
+
     chat_container = st.container()
     with chat_container:
         if st.session_state.messages:
@@ -512,32 +512,26 @@ def main():
         else:
             display_empty_state()
 
-    # Handle pending queries (both suggestions and manual inputs)
     if st.session_state.pending_query:
         query = st.session_state.pending_query
-        st.session_state.pending_query = None  # Reset immediately
-        
-        # Show typing indicator
+        st.session_state.pending_query = None 
+
         with chat_container:
             typing_placeholder = st.empty()
             with typing_placeholder:
                 display_typing_indicator()
         
         try:
-            # Get response from the model
             result = generate_final_answer(query, "finance")
-            
-            # Process response
+
             response = result.get("answer", "I couldn't retrieve that information. Please try again.")
-            enhanced_response = response.replace("\n", "<br>")  # Convert newlines to HTML breaks
-            
-            # Add bot response to messages
+            enhanced_response = response.replace("\n", "<br>")
+
             st.session_state.messages.append({
                 "content": enhanced_response,
                 "is_user": False
             })
-            
-            # Add API data sources
+
             if isinstance(result, dict) and result.get("api_data"):
                 sources_html = ""
                 for source, data in result["api_data"].items():
@@ -559,8 +553,7 @@ def main():
                         "content": sources_html,
                         "is_user": False
                     })
-            
-            # Clear typing indicator and refresh
+
             typing_placeholder.empty()
             st.experimental_rerun()
             
@@ -572,11 +565,9 @@ def main():
             })
             st.experimental_rerun()
 
-    # Display suggestions if no messages
     if not st.session_state.messages:
         display_suggestions()
 
-    # Input area (always visible)
     with st.container():
         st.markdown('<div class="input-container">', unsafe_allow_html=True)
         col1, col2 = st.columns([5, 1])
@@ -589,12 +580,10 @@ def main():
         with col2:
             if st.button("Send 📤", key="send_button", use_container_width=True):
                 if user_input.strip():
-                    # Add user message immediately
                     st.session_state.messages.append({
                         "content": user_input,
                         "is_user": True
                     })
-                    # Store query and trigger processing
                     st.session_state.pending_query = user_input
                     st.experimental_rerun()
         st.markdown('</div>', unsafe_allow_html=True)

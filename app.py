@@ -17,15 +17,13 @@ load_dotenv()
 
 st.markdown("""
 <style>
-    /* Main Container */
     .stApp {
         background: linear-gradient(135deg, #f8f9fa 0%, #e9ecef 100%);
         font-family: 'Inter', sans-serif;
         padding: 0 !important;
         margin: 0 !important;
     }
-    
-    /* Remove default padding and margins */
+
     .block-container {
         padding-top: 0.5rem !important;
         padding-bottom: 0.5rem !important;
@@ -33,13 +31,11 @@ st.markdown("""
         padding-left: 0.5rem !important;
         padding-right: 0.5rem !important;
     }
-    
-    /* Remove extra spacing from Streamlit elements */
+
     .stVerticalBlock {
         gap: 0 !important;
     }
-    
-    /* Header Styling */
+
     .main-header {
         background: linear-gradient(135deg, #6a11cb 0%, #2575fc 100%);
         color: white;
@@ -62,7 +58,6 @@ st.markdown("""
         opacity: 0.9;
     }
     
-    /* Message Bubbles */
     .user-message {
         background: linear-gradient(135deg, #6a11cb 0%, #2575fc 100%);
         color: white;
@@ -122,8 +117,6 @@ st.markdown("""
         from { transform: translateX(-30px); opacity: 0; }
         to { transform: translateX(0); opacity: 1; }
     }
-    
-    /* Message headers */
     .message-header {
         display: flex;
         align-items: center;
@@ -155,8 +148,7 @@ st.markdown("""
         opacity: 0.7;
         margin-left: auto;
     }
-    
-    /* Data Source Styling */
+
     .data-source {
         background: #f8f9fa;
         border-left: 3px solid #6a11cb;
@@ -172,8 +164,7 @@ st.markdown("""
         color: #6a11cb;
         font-size: 1rem;
     }
-    
-    /* Input Area */
+
     .input-container {
         background: white;
         border-radius: 15px;
@@ -183,7 +174,6 @@ st.markdown("""
         margin-top: 0;
     }
     
-    /* Remove margin from text input */
     .stTextInput {
         margin-bottom: 0 !important;
     }
@@ -202,8 +192,7 @@ st.markdown("""
         border-color: #6a11cb !important;
         box-shadow: 0 0 0 2px rgba(106, 17, 203, 0.2) !important;
     }
-    
-    /* Send Button */
+
     .stButton {
         margin-top: 0 !important;
         margin-bottom: 0 !important;
@@ -253,8 +242,7 @@ st.markdown("""
         background: rgba(106, 17, 203, 0.1);
         transform: translateY(-2px);
     }
-    
-    /* Typing Animation */
+
     @keyframes blink {
         0% { opacity: 0.2; }
         20% { opacity: 1; }
@@ -280,14 +268,12 @@ st.markdown("""
     .typing-bubble-1 { animation: blink 1.4s infinite 0.2s; }
     .typing-bubble-2 { animation: blink 1.4s infinite 0.4s; }
     .typing-bubble-3 { animation: blink 1.4s infinite 0.6s; }
-    
-    /* Highlight important data */
+
     .highlight {
         font-weight: 600;
         color: #6a11cb;
     }
-    
-    /* Market trend indicators */
+
     .trend-up {
         color: #00c853;
         font-weight: 600;
@@ -297,8 +283,7 @@ st.markdown("""
         color: #ff3d00;
         font-weight: 600;
     }
-    
-    /* Empty state */
+
     .empty-state {
         text-align: center;
         padding: 30px 20px;
@@ -310,8 +295,7 @@ st.markdown("""
         margin-bottom: 15px;
         opacity: 0.7;
     }
-    
-    /* Mobile responsiveness */
+
     @media (max-width: 768px) {
         .main-header h1 {
             font-size: 1.8rem;
@@ -321,13 +305,11 @@ st.markdown("""
             max-width: 90%;
         }
     }
-    
-    /* Ensure no padding in columns */
+
     .stColumn {
         padding: 0 !important;
     }
     
-    /* Fix spacing between elements */
     footer {
         display: none !important;
     }
@@ -336,12 +318,10 @@ st.markdown("""
         padding-bottom: 0 !important;
     }
 
-    /* Adjust container heights */
     .element-container, .stVerticalBlock {
         margin-bottom: 0 !important;
     }
-    
-    /* Ensure all text is visible with proper contrast */
+
     .bot-message, .data-source, .stTextInput>div>div>input, .empty-state {
         color: #333 !important;
     }
@@ -349,14 +329,12 @@ st.markdown("""
     .user-message {
         color: white !important;
     }
-    
-    /* Fix placeholder text color */
+
     .stTextInput>div>div>input::placeholder {
         color: #999 !important;
         opacity: 1;
     }
-    
-    /* Reduce overall padding to remove whitespace */
+
     .stApp > header {
         display: none !important;
     }
@@ -368,7 +346,6 @@ st.markdown("""
     section[data-testid="stSidebar"] {
         display: none !important;
     }
-            /* Additional CSS to reduce whitespace */
     .stApp {
         padding: 0 !important;
         margin: 0 !important;
@@ -384,7 +361,6 @@ st.markdown("""
         gap: 0 !important;
     }
 
-    /* Adjust container heights */
     .element-container, .stVerticalBlock {
         margin-bottom: 0 !important;
     }

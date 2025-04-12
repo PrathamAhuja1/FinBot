@@ -270,28 +270,20 @@ generator = load_model()
 
 def build_prompt(query, index_name, api_responses=None):
     try:
-        # Dynamic response template
+        # Updated prompt template without emojis
         prompt_template = (
             f"<|begin_of_text|><|start_header_id|>system<|end_header_id|>\n"
             f"You are a financial expert. Format responses with these rules:\n"
-            f"1. Use numbered lists with ▸ symbols\n"
-            f"2. Include relevant emojis in headers\n"
-            f"3. Show key metrics in bold\n"
-            f"4. Always cite sources\n"
-            f"5. Add a closing remark\n"
-            f"6. Keep explanations concise\n\n"
+            f"1. Use numbered lists with clean formatting\n"
+            f"2. Show key metrics in bold\n"
+            f"3. Always cite sources with full URLs\n"
+            f"4. Add a closing remark\n"
+            f"5. Keep explanations concise\n\n"
             f"Format Examples:\n"
             f"Stock Example:\n"
-            f"📈 AAPL Stock Analysis - 15 Mar 2024\n"
-            f"1▸ 💵 Price: $175.42 (+1.2% from yesterday)\n"
-            f"2▸ 📊 Volume: 45M shares traded\n\n"
-            f"Crypto Example:\n"
-            f"🔐 Bitcoin Update\n"
-            f"1▸ 💵 Price: $63,450.80\n"
-            f"2▸ 📈 24h Change: +3.2%\n\n"
-            f"News Example:\n"
-            f"📰 Market Updates\n"
-            f"1▸ Fed maintains interest rates at 5.25%\n\n"
+            f"AAPL Stock Analysis - 15 Mar 2024\n"
+            f"1. Price: $175.42 (+1.2% from yesterday)\n"
+            f"2. Volume: 45M shares traded\n\n"
             f"Current Date: {datetime.now().strftime('%d %b %Y')}\n"
         )
 
@@ -331,13 +323,15 @@ def build_prompt(query, index_name, api_responses=None):
             )
         
         # Google Search Formatting
-        if "google_search" in api_responses:
-            news = api_responses["google_search"]
-            if "results" in news:
-                data_sources.append("News Context:\n" + "\n".join(
-                    f"{result['title']}: {result['snippet']}" 
-                    for result in news["results"][:3]
-                ))
+        if "google_search" in api_responses and "results" in api_responses["google_search"]:
+            news = api_responses["google_search"]["results"]
+            if news:
+                news_context = [
+                    "Web Updates:",
+                    *[f"{i+1}. {result['title']}: {result['snippet']}\n   Link: {result['link']}"
+                      for i, result in enumerate(news[:3])]
+                ]
+                data_sources.append("\n".join(news_context))
 
         prompt_template += "\n".join(data_sources) + "\n"
         prompt_template += f"<|start_header_id|>user<|end_header_id|>\n{query}\n"
@@ -353,23 +347,23 @@ def build_prompt(query, index_name, api_responses=None):
 
 def generate_final_answer(query, index_name):
     if not generator:
-        print("❌ Error: AI model failed to initialize")
+        print("Error: AI model failed to initialize")
         return {
             "answer": "System initialization failed. Please check your model configuration.",
             "error": "Model not loaded"
         }
     
     try:
-        print("\n🔍 Processing query...")
+        print("\nProcessing query...")
         api_responses = determine_api_calls(query)
 
-        print("\n📦 Raw API Responses:")
+        print("\nRaw API Responses:")
         for api_name, data in api_responses.items():
             print(f"{api_name.upper():<15}: {str(data)[:100]}...")
 
         prompt = build_prompt(query, INDEX_NAME, api_responses)
 
-        print("\n📝 Generated Prompt:")
+        print("\nGenerated Prompt:")
         print(prompt[:1000] + "..." if len(prompt) > 1000 else prompt)
 
         output = generator(
@@ -394,31 +388,22 @@ def generate_final_answer(query, index_name):
 
         formatted_lines = []
         current_number = 1
-        source_counter = 1
-        
-        # Detect content type for header
+
+
         content_type = "general"
-        header_emoji_map = {
-            "stock": "📈",
-            "crypto": "🔐",
-            "forex": "💱",
-            "news": "📰"
-        }
-        
         if "stock_data" in api_responses:
             content_type = "stock"
             base_header = f"{api_responses['stock_data']['symbol']} Stock Analysis - {api_responses['stock_data']['date']}"
         elif "crypto" in api_responses:
             content_type = "crypto"
             base_header = f"{api_responses['crypto']['name']} Update"
-        elif "google_search" in api_responses:
-            content_type = "news"
-            base_header = "Market Updates"
+        elif "forex" in api_responses:
+            content_type = "forex"
+            base_header = f"{api_responses['forex']['base']}/{api_responses['forex']['target']} Rates"
         else:
             base_header = "Financial Analysis"
 
-        # Add formatted header
-        formatted_lines.append(f"{header_emoji_map.get(content_type, '📊')} {base_header}")
+        formatted_lines.append(base_header)
         
         # Process answer lines
         for line in clean_answer.split('\n'):
@@ -427,49 +412,33 @@ def generate_final_answer(query, index_name):
                 continue
 
             if line.startswith(("1.", "•", "-", "*")):
-                line = f"{current_number}▸ {line[2:].strip()}"
+                line = f"{current_number}. {line[2:].strip()}"
                 current_number += 1
 
-            for pattern in ["$", "%", "USD", "INR", "volume", "price", "rate", "cap"]:
-                if pattern in line:
-                    line = line.replace(pattern, f"**{pattern}**")
-                    
             formatted_lines.append(line)
 
-        # Add closing remark if missing
         if not any(word in clean_answer.lower() for word in ["note:", "closing", "reminder"]):
-            formatted_lines.append("\n💡 Need more details or clarification? Just ask!")
+            formatted_lines.append("\nNeed more details or clarification? Just ask!")
 
-        # Add references
         references = []
+        if "google_search" in api_responses and "results" in api_responses["google_search"]:
+            for result in api_responses["google_search"]["results"][:3]:
+                references.append(f"Source: {result['link']}")
+
         source_map = {
-            "stock": "Alpha Vantage API Data",
-            "crypto": "Coinranking API",
-            "forex": "Alpha Vantage Forex Data",
-            "news": "Web Results"
+            "stock": "Alpha Vantage",
+            "crypto": "Coinranking",
+            "forex": "Alpha Vantage Forex"
         }
-        
-        for idx, (api_type, source_name) in enumerate(api_responses.get("_sources", {}).items(), 1):
-            references.append(f"{idx}. {source_map.get(api_type, source_name)}")
+        for api_type, source_name in api_responses.get("_sources", {}).items():
+            if api_type in source_map:
+                references.append(f"Source: {source_map[api_type]}")
 
         if references:
-            formatted_lines.append("\n📚 References:")
+            formatted_lines.append("\nReferences:")
             formatted_lines.extend(references)
 
-        # Final emoji formatting
-        emoji_map = {
-            "stock": "📈",
-            "crypto": "🔐",
-            "forex": "💱",
-            "price": "💵",
-            "volume": "📊",
-            "news": "📰",
-            "rate": "📈"
-        }
-        
         formatted_answer = "\n".join(formatted_lines)
-        for keyword, emoji in emoji_map.items():
-            formatted_answer = formatted_answer.replace(f"**{keyword}**", f"{emoji} {keyword.title()}")
 
         return {
             "answer": formatted_answer,
@@ -478,9 +447,9 @@ def generate_final_answer(query, index_name):
         }
         
     except Exception as e:
-        print(f"\n⚠️ Processing Error: {str(e)}")
+        print(f"\nProcessing Error: {str(e)}")
         return {
-            "answer": "🚨 Oops! Something went wrong while processing your request. Please try again.",
+            "answer": "Error processing request. Please try again.",
             "error": str(e)
         }
 

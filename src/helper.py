@@ -1,6 +1,3 @@
-#streamlit run app.py --server.fileWatcherType none
-
-
 import os
 import pinecone
 from typing import List
@@ -10,6 +7,9 @@ from langchain_huggingface import HuggingFaceEmbeddings
 from langchain_community.vectorstores import Pinecone
 from dotenv import load_dotenv
 import re
+import pycountry
+from countryinfo import CountryInfo
+from babel.numbers import get_territory_currencies
 
 load_dotenv()
 
@@ -17,6 +17,7 @@ def get_embedding_model(model_name: str = "sentence-transformers/all-MiniLM-L6-v
     """Initialize and return the embedding model."""
     embeddings = HuggingFaceEmbeddings(model_name=model_name)
     return embeddings
+
 
 def load_documents(resource_path: str) -> List:
     """Load PDF documents from a directory and its subdirectories."""
@@ -37,6 +38,7 @@ def load_documents(resource_path: str) -> List:
     
     return documents
 
+
 def split_documents(documents, chunk_size: int = 1000, chunk_overlap: int = 200):
     """Split documents into chunks for better embedding."""
     if not documents:
@@ -51,6 +53,7 @@ def split_documents(documents, chunk_size: int = 1000, chunk_overlap: int = 200)
     split_docs = splitter.split_documents(documents)
     return split_docs
 
+
 def create_pinecone_index(documents, embeddings, index_name: str):
     """Update an existing Pinecone index with document embeddings."""
     
@@ -61,6 +64,7 @@ def create_pinecone_index(documents, embeddings, index_name: str):
         index_name=index_name
     )
     return vectorstore
+
 
 def ingest_and_store_index(
     resource_dir: str, 
@@ -88,6 +92,7 @@ def ingest_and_store_index(
     
     return vectorstore
     
+
 def query_index(query: str, index_name: str, model_name: str = "sentence-transformers/all-MiniLM-L6-v2", top_k: int = 5):
     """Query the Pinecone index with a given query string."""
     embeddings = get_embedding_model(model_name)
@@ -100,7 +105,6 @@ def query_index(query: str, index_name: str, model_name: str = "sentence-transfo
     results = vectorstore.similarity_search(query, k=top_k)
     
     return results
-
 
 
 def extract_ticker(query):
@@ -148,23 +152,17 @@ def extract_ticker(query):
             return word.upper()
     
     # Final fallback
-    return "BTC" 
-
+    return 'BTC'
 
 
 def get_internal_context(query, index_name):
     """
     Retrieve and process internal context with improved coherence and relevance.
-
     """
     try:
-        # Retrieve internal results from the index
         internal_results = query_index(query, index_name)
-        
         if not internal_results:
             return ""
-        
-        # Extract content based on available attributes
         try:
             if hasattr(internal_results[0], 'content'):
                 documents = [doc.content for doc in internal_results]
@@ -179,37 +177,25 @@ def get_internal_context(query, index_name):
             return ""
 
         combined_text = " ".join(documents)
-
         sentences = combined_text.replace('\n', ' ').split('. ')
         
-        # Calculate sentence relevance
         def sentence_relevance_score(sentence, query):
-            """Calculate sentence relevance based on keyword matching."""
             query_words = set(query.lower().split())
             sentence_words = set(sentence.lower().split())
-            
-            # Prioritize sentences with exact phrase matches
             exact_phrase_score = 10 if any(phrase in sentence.lower() for phrase in [
                 'financial', 'investment', 'market', 'stock', 'economy', 
                 'trading', 'finance', 'economic', 'company', 'business'
             ]) else 0
-            
-            # Calculate keyword intersection score
             keyword_score = len(query_words.intersection(sentence_words))
-            
             return exact_phrase_score + keyword_score
         
-        # Sort sentences by relevance to the query
         scored_sentences = [
             (sentence.strip(), sentence_relevance_score(sentence, query)) 
             for sentence in sentences 
             if sentence.strip() and len(sentence.strip()) > 30
         ]
-        
-        # Sort sentences by relevance score in descending order
         sorted_sentences = sorted(scored_sentences, key=lambda x: x[1], reverse=True)
         
-        # Select top relevant sentences
         max_context_length = 1200 
         current_length = 0
         selected_sentences = []
@@ -222,12 +208,114 @@ def get_internal_context(query, index_name):
                 break
 
         context = '. '.join(selected_sentences)
-
         if context and not context.endswith('.'):
             context += '.'
-
         return context if len(context) > 100 else ""
-    
     except Exception as e:
         print(f"Error in get_internal_context: {str(e)}")
         return ""
+
+
+def get_countries_currencies(text: str, max_countries: int = 2) -> List[str]:
+    """
+    Scan `text` for up to `max_countries` distinct countries and return
+    their ISO-4217 currency codes.
+
+    1) Exact match on country.name / official_name / common_name (case-insensitive).
+    2) Exact match on ISO alpha_2 / alpha_3 (case-sensitive).
+    3) Fallback: fuzzy-match any 4+ letter token to a country (to catch demonyms).
+    """
+    results: List[str] = []
+    seen_alpha2: set[str] = set()
+    text_lower = text.lower()
+
+    # 1) Build (alias, country, kind) list
+    alias_country = []
+    for country in pycountry.countries:
+        # collect name‑based aliases
+        names = {country.name}
+        if hasattr(country, 'official_name'):
+            names.add(country.official_name)
+        if hasattr(country, 'common_name'):
+            names.add(country.common_name)
+        for name in names:
+            alias_country.append((name.lower(), country, 'name'))
+        # collect code aliases
+        alias_country.append((country.alpha_2, country, 'code'))
+        alias_country.append((country.alpha_3, country, 'code'))
+
+    # 2) Match longer aliases first
+    alias_country.sort(key=lambda x: len(x[0]), reverse=True)
+
+    # 3) Exact‐alias pass
+    for alias, country, kind in alias_country:
+        if len(results) >= max_countries:
+            break
+        if country.alpha_2 in seen_alpha2:
+            continue
+
+        hay = text_lower if kind == 'name' else text
+        if not re.search(rf'\b{re.escape(alias)}\b', hay):
+            continue
+
+        # get currency via Babel CLDR
+        code = None
+        try:
+            codes = get_territory_currencies(country.alpha_2)
+            if codes:
+                code = codes[0]
+        except Exception:
+            pass
+
+        # fallback to CountryInfo
+        if not code:
+            try:
+                ci = CountryInfo(country.name)
+                currs = ci.currencies()
+                if currs:
+                    code = currs[0]
+            except Exception:
+                pass
+
+        if code:
+            results.append(code)
+            seen_alpha2.add(country.alpha_2)
+
+    # 4) Fuzzy‐demonym pass
+    if len(results) < max_countries:
+        tokens = re.findall(r'\b[A-Za-z]{4,}\b', text)
+        for token in tokens:
+            if len(results) >= max_countries:
+                break
+            try:
+                country = pycountry.countries.search_fuzzy(token)[0]
+            except LookupError:
+                continue
+            if country.alpha_2 in seen_alpha2:
+                continue
+
+            # same currency lookup
+            code = None
+            try:
+                codes = get_territory_currencies(country.alpha_2)
+                if codes:
+                    code = codes[0]
+            except Exception:
+                pass
+
+            if not code:
+                try:
+                    ci = CountryInfo(country.name)
+                    currs = ci.currencies()
+                    if currs:
+                        code = currs[0]
+                except Exception:
+                    pass
+
+            if code:
+                results.append(code)
+                seen_alpha2.add(country.alpha_2)
+
+    return results
+
+

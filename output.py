@@ -1,7 +1,7 @@
 import os
 import requests
 from dotenv import load_dotenv
-from src.helper import query_index, extract_ticker, get_internal_context
+from src.helper import query_index, extract_ticker, get_internal_context, get_countries_currencies
 from transformers import AutoModelForCausalLM, AutoTokenizer, pipeline
 import torch
 from datetime import datetime
@@ -15,6 +15,7 @@ if platform.system() == "Windows":
 load_dotenv()
 RAPIDAPI_KEY = os.environ.get("RAPIDAPI_KEY")
 INDEX_NAME = "finance"
+RAPIDAPI_KEY_2 = os.environ.get("RAPIDAPI_KEY_2")
 
 RAPIDAPI_HEADERS = {
     "X-RapidAPI-Key": RAPIDAPI_KEY,
@@ -23,7 +24,7 @@ RAPIDAPI_HEADERS = {
 
 # -----------------------------------------------------------------------------------------------------------------------------------------------
 
-def get_forex_data(base="USD", target="INR"):
+def get_forex_data(base, target):
     headers = RAPIDAPI_HEADERS.copy()
     headers["X-RapidAPI-Host"] = "alpha-vantage.p.rapidapi.com"
     try:
@@ -89,12 +90,12 @@ def get_stock_data(ticker="AAPL"):
 
 def get_google_search_results(query):
     headers = {
-        "X-RapidAPI-Key": RAPIDAPI_KEY,
+        "X-RapidAPI-Key": RAPIDAPI_KEY_2,
         "X-RapidAPI-Host": "google-search74.p.rapidapi.com"
     }
     params = {
         "query": query,
-        "limit": "5",
+        "limit": "3",
         "related_keywords": "false"
     }
     try:
@@ -122,6 +123,7 @@ def get_google_search_results(query):
         return {"error": f"Google Search Error {e.response.status_code}: {str(e)}"}
     except Exception as e:
         return {"error": f"Google Search Error: {str(e)}"}
+
 
 def get_crypto_data(symbol='BTC'):
     headers = RAPIDAPI_HEADERS.copy()
@@ -216,24 +218,25 @@ def determine_api_calls(query):
 
     # Forex data
     if any(k in q_lower for k in ["forex", "currency", "exchange rate"]):
-        print("Attempting to fetch forex data...")
-        forex_data = get_forex_data("USD", "INR")
+        print("Attempting to fetch forex data…")
+        base, target = get_countries_currencies(query)
+        forex_data = get_forex_data(base, target)
         if "error" in forex_data:
             api_status["forex"] = f"Error: {forex_data['error']}"
         else:
-            responses["forex"] = forex_data
-            api_status["forex"] = "Success"        
-            sources["forex"] = "Alpha Vantage Forex Data"
+            responses["forex"]  = forex_data
+            api_status["forex"] = "Success"
+            sources["forex"]    = "Alpha Vantage Forex Data"
 
-    # Google Search
-    if len(responses) <= 1:
-        google_data = get_google_search_results(query)
-        if "error" in google_data:
-            api_status["google_search"] = google_data["error"]
-        else:
-            responses["google_search"] = google_data
-            api_status["google_search"] = "Success"
-            sources["news"] = "Web Results"
+        # Google Search
+        if len(responses) <= 1:
+            google_data = get_google_search_results(query)
+            if "error" in google_data:
+                api_status["google_search"] = google_data["error"]
+            else:
+                responses["google_search"] = google_data
+                api_status["google_search"] = "Success"
+                sources["news"] = "Web Results"
 
     responses["_api_status"] = api_status
     responses["_sources"] = sources
@@ -243,7 +246,6 @@ def determine_api_calls(query):
         responses["error"] = "No financial data sources could be accessed for this query"
 
     return responses
-
 
 #-----------------------------------------------------------------------------------------------------------------------------------------------
 
@@ -265,27 +267,12 @@ def load_model():
 
 generator = load_model()
 
-
 #------------------------------------------------------------------------------------------------------------------------------------------------
 
 def build_prompt(query, index_name, api_responses=None):
     try:
-        # Updated prompt template without emojis
-        prompt_template = (
-            f"<|begin_of_text|><|start_header_id|>system<|end_header_id|>\n"
-            f"You are a financial expert. Format responses with these rules:\n"
-            f"1. Use numbered lists with clean formatting\n"
-            f"2. Show key metrics in bold\n"
-            f"3. Always cite sources with full URLs\n"
-            f"4. Add a closing remark\n"
-            f"5. Keep explanations concise\n\n"
-            f"Format Examples:\n"
-            f"Stock Example:\n"
-            f"AAPL Stock Analysis - 15 Mar 2024\n"
-            f"1. Price: $175.42 (+1.2% from yesterday)\n"
-            f"2. Volume: 45M shares traded\n\n"
-            f"Current Date: {datetime.now().strftime('%d %b %Y')}\n"
-        )
+
+        prompt_template = (f"Current Date: {datetime.now().strftime('%d %b %Y')}\n\n")
 
         if api_responses is None:
             api_responses = determine_api_calls(query)
@@ -334,8 +321,6 @@ def build_prompt(query, index_name, api_responses=None):
                 data_sources.append("\n".join(news_context))
 
         prompt_template += "\n".join(data_sources) + "\n"
-        prompt_template += f"<|start_header_id|>user<|end_header_id|>\n{query}\n"
-        prompt_template += f"<|start_header_id|>assistant<|end_header_id|>\n"
         
         return prompt_template
         
@@ -346,49 +331,40 @@ def build_prompt(query, index_name, api_responses=None):
 #------------------------------------------------------------------------------------------------------------------------------------------------
 
 def generate_final_answer(query, index_name):
-    if not generator:
-        print("Error: AI model failed to initialize")
-        return {
-            "answer": "System initialization failed. Please check your model configuration.",
-            "error": "Model not loaded"
-        }
-    
+
     try:
         print("\nProcessing query...")
         api_responses = determine_api_calls(query)
 
-        print("\nRaw API Responses:")
-        for api_name, data in api_responses.items():
-            print(f"{api_name.upper():<15}: {str(data)[:100]}...")
 
         prompt = build_prompt(query, INDEX_NAME, api_responses)
 
-        print("\nGenerated Prompt:")
-        print(prompt[:1000] + "..." if len(prompt) > 1000 else prompt)
+        print(prompt[:1350] + "..." if len(prompt) > 1350 else prompt)
 
         output = generator(
             prompt,
             do_sample=True,
             temperature=0.5,
-            max_length=2000,
+            max_length=3500,
             top_p=0.9,
             repetition_penalty=1.1,
             eos_token_id=generator.tokenizer.eos_token_id,
-            truncation=True
+            truncation=False
         )
 
         full_response = output[0]['generated_text']
         split_marker = "<|start_header_id|>assistant<|end_header_id|>"
         
         if split_marker in full_response:
-            clean_answer = full_response.split(split_marker)[-1].strip()
+            clean_answer = full_response.split(split_marker)[-1]
+
+            clean_answer = clean_answer.split("<|end_of_text|>")[0].strip()
             clean_answer = clean_answer.split("<|")[0].strip()
         else:
             clean_answer = full_response
 
         formatted_lines = []
         current_number = 1
-
 
         content_type = "general"
         if "stock_data" in api_responses:
@@ -404,8 +380,7 @@ def generate_final_answer(query, index_name):
             base_header = "Financial Analysis"
 
         formatted_lines.append(base_header)
-        
-        # Process answer lines
+
         for line in clean_answer.split('\n'):
             line = line.strip()
             if not line:
@@ -417,26 +392,26 @@ def generate_final_answer(query, index_name):
 
             formatted_lines.append(line)
 
-        if not any(word in clean_answer.lower() for word in ["note:", "closing", "reminder"]):
+        if not any(word in clean_answer.lower() for word in ["note:", "closing", "reminder", "summary"]):
             formatted_lines.append("\nNeed more details or clarification? Just ask!")
+
 
         references = []
         if "google_search" in api_responses and "results" in api_responses["google_search"]:
-            for result in api_responses["google_search"]["results"][:3]:
-                references.append(f"Source: {result['link']}")
+            references.extend([result['link'] for result in api_responses["google_search"]["results"][:3]])
 
-        source_map = {
-            "stock": "Alpha Vantage",
-            "crypto": "Coinranking",
-            "forex": "Alpha Vantage Forex"
-        }
-        for api_type, source_name in api_responses.get("_sources", {}).items():
-            if api_type in source_map:
-                references.append(f"Source: {source_map[api_type]}")
+        for api_type in ["stock", "crypto", "forex"]:
+            if api_type in api_responses.get("_sources", {}):
+                references.append(api_responses["_sources"][api_type])
 
         if references:
             formatted_lines.append("\nReferences:")
-            formatted_lines.extend(references)
+            formatted_lines.extend([f"• {ref}" for ref in references if ref])
+
+        min_expected_length = 5
+        if len(formatted_lines) < min_expected_length:
+            formatted_lines.append("\n[Additional analysis unavailable due to response constraints]")
+            formatted_lines.append("Please refine your query or check market data availability.")
 
         formatted_answer = "\n".join(formatted_lines)
 
@@ -453,10 +428,10 @@ def generate_final_answer(query, index_name):
             "error": str(e)
         }
 
-
 #------------------------------------------------------------------------------------------------------------------------------------------------
 
 if __name__ == "__main__":
+    print("**********************************Enter your queries below**********************************")
     print("\n💰 Financial Assistant - Ctrl+C to exit")
     while True:
         try:
@@ -484,4 +459,4 @@ if __name__ == "__main__":
 
     print("\n✨ Session ended. Thank you for using the financial assistant!")
 
-#-----------------------------------------------------------------------------------------------------------------------------------------------
+#------------------------------------------------------------------------------------------------------------------------------------------------

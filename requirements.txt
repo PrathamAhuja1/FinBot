@@ -16,4 +16,7 @@ bitsandbytes==0.41.1
 transformers
 huggingface-hub==0.23.3
 auto-gptq==0.7.1
-streamlit
+forex-python
+pycountry
+CurrencyConverter
+babel

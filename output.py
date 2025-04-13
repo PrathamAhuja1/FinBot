@@ -187,6 +187,9 @@ def determine_api_calls(query):
     q_lower = query.lower()
     financial_api_called = False
 
+
+
+
     # Stock data
     if any(k in q_lower for k in ["stock", "share", "price", "market", "ticker"]) and not any(k in q_lower for k in ["bitcoin", "ethereum", "btc", "eth", "crypto"]):
         financial_api_called = True
@@ -206,6 +209,9 @@ def determine_api_calls(query):
             api_status["stock_data"] = f"Exception: {str(e)}"
             responses["stock_data"] = {"error": str(e)}
 
+   
+
+
     # Crypto data
     if any(k in q_lower for k in ["crypto", "bitcoin", "ethereum", "btc", "eth", "coin", "blockchain"]):
         financial_api_called = True
@@ -218,6 +224,9 @@ def determine_api_calls(query):
             responses["crypto"] = crypto_data
             api_status["crypto"] = "Success"
             sources["crypto"] = "Coinranking "
+
+
+
 
      # Forex data
     if any(k in q_lower for k in ["forex", "currency", "exchange rate"]):
@@ -251,7 +260,6 @@ def determine_api_calls(query):
             if len(codes) >= 2:
                 base_code, target_code = codes[0], codes[1]
             else:
-
                 base_code, target_code = "USD", "INR"
 
         forex_data = get_forex_data(base_code, target_code)
@@ -262,8 +270,11 @@ def determine_api_calls(query):
             api_status["forex"]  = "Success"
             sources["forex"]     = "Alpha Vantage Forex Data"
 
+
+
+
     #  Google Search 
-    if financial_api_called:
+    if True:
         google_data = get_google_search_results(query)
         if "error" not in google_data:
             responses["google_search"] = google_data
@@ -280,6 +291,8 @@ def determine_api_calls(query):
         responses["error"] = "No relevant data sources found"
 
     return responses
+
+
 
 #-----------------------------------------------------------------------------------------------------------------------------------------------
 
@@ -379,7 +392,7 @@ def generate_final_answer(query, index_name):
             prompt,
             do_sample=True,
             temperature=0.5,
-            max_length=1024,
+            max_length=2500,
             top_p=0.9,
             repetition_penalty=1.1,
             eos_token_id=generator.tokenizer.eos_token_id,
@@ -451,9 +464,13 @@ def generate_final_answer(query, index_name):
 
         formatted_answer = "\n".join(formatted_lines)
 
+
+        internal_context = get_internal_context(query, index_name)
+
         return {
             "answer": formatted_answer,
             "api_data": api_responses,
+            "internal_context": internal_context,
             "error": None
         }
         
@@ -461,6 +478,7 @@ def generate_final_answer(query, index_name):
         print(f"\nProcessing Error: {str(e)}")
         return {
             "answer": "Error processing request. Please try again.",
+            "internal_context": "",
             "error": str(e)
         }
 
@@ -476,17 +494,23 @@ if __name__ == "__main__":
                 continue
             if query.lower() in ['exit', 'quit']:
                 break
-                
+
             result = generate_final_answer(query, INDEX_NAME)
-            
+
             print("\n💡 Analysis Results:")
             print("━" * 50)
             print(result["answer"])
             print("━" * 50)
-            
+
+            internal_ctx = result.get("internal_context", "").strip()
+            if internal_ctx:
+                print("\n🔎 Internal Context:")
+                print(internal_ctx)
+                print("━" * 50)
+
             if result.get("error"):
-                print(f"\n⚠️ Behind the scenes error: {result['error']}")
-                
+                print(f"\n⚠️error: {result['error']}")
+
         except KeyboardInterrupt:
             print("\n👋 Exiting...")
             break
@@ -494,5 +518,6 @@ if __name__ == "__main__":
             print(f"\n🔥 Unexpected error: {str(e)}")
 
     print("\n✨ Session ended. Thank you for using the financial assistant!")
+
 
 #------------------------------------------------------------------------------------------------------------------------------------------------

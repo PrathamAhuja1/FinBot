@@ -209,8 +209,8 @@ def get_internal_context(query, index_name):
 
         context = '. '.join(selected_sentences)
         if context and not context.endswith('.'):
-            context += '.'
-        return context if len(context) > 100 else ""
+             context += '.'
+        return context
     except Exception as e:
         print(f"Error in get_internal_context: {str(e)}")
         return ""

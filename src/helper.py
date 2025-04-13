@@ -217,14 +217,7 @@ def get_internal_context(query, index_name):
 
 
 def get_countries_currencies(text: str, max_countries: int = 2) -> List[str]:
-    """
-    Scan `text` for up to `max_countries` distinct countries and return
-    their ISO-4217 currency codes.
 
-    1) Exact match on country.name / official_name / common_name (case-insensitive).
-    2) Exact match on ISO alpha_2 / alpha_3 (case-sensitive).
-    3) Fallback: fuzzy-match any 4+ letter token to a country (to catch demonyms).
-    """
     results: List[str] = []
     seen_alpha2: set[str] = set()
     text_lower = text.lower()

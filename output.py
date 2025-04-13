@@ -7,7 +7,7 @@ import torch
 from datetime import datetime
 import asyncio
 import platform
-
+import re
 if platform.system() == "Windows":
     asyncio.set_event_loop_policy(asyncio.WindowsSelectorEventLoopPolicy())
 
@@ -185,9 +185,11 @@ def determine_api_calls(query):
     api_status = {}
     sources = {}
     q_lower = query.lower()
+    financial_api_called = False
 
     # Stock data
     if any(k in q_lower for k in ["stock", "share", "price", "market", "ticker"]) and not any(k in q_lower for k in ["bitcoin", "ethereum", "btc", "eth", "crypto"]):
+        financial_api_called = True
         ticker = extract_ticker(query)
         print(f"Attempting to fetch stock data for ticker: {ticker}")
         try:
@@ -198,7 +200,7 @@ def determine_api_calls(query):
             else:
                 responses["stock_data"] = stock_data
                 api_status["stock_data"] = "Success"
-                sources["stock"] = "Alpha Vantage API"
+                sources["stock"] = "Alpha Vantage"
                 print(f"Stock data for {ticker} retrieved successfully")
         except Exception as e:
             api_status["stock_data"] = f"Exception: {str(e)}"
@@ -206,6 +208,7 @@ def determine_api_calls(query):
 
     # Crypto data
     if any(k in q_lower for k in ["crypto", "bitcoin", "ethereum", "btc", "eth", "coin", "blockchain"]):
+        financial_api_called = True
         crypto_symbol = extract_ticker(query)
         print(f"Fetching crypto data for: {crypto_symbol}")
         crypto_data = get_crypto_data(crypto_symbol)
@@ -214,36 +217,67 @@ def determine_api_calls(query):
         else:
             responses["crypto"] = crypto_data
             api_status["crypto"] = "Success"
-            sources["crypto"] = "Coinranking API"
+            sources["crypto"] = "Coinranking "
 
-    # Forex data
+     # Forex data
     if any(k in q_lower for k in ["forex", "currency", "exchange rate"]):
+        financial_api_called = True
         print("Attempting to fetch forex data…")
-        base, target = get_countries_currencies(query)
-        forex_data = get_forex_data(base, target)
+
+        base_code = target_code = None
+
+        m = re.search(r'\b([A-Za-z]{3})/([A-Za-z]{3})\b', query)
+        if m:
+            base_code, target_code = m.group(1).upper(), m.group(2).upper()
+        else:
+
+            m2 = re.search(
+                r'\b([A-Za-z]{3})\b\s+(?:to|in)\s+\b([A-Za-z]{3})\b',
+                query, re.IGNORECASE
+            )
+            if m2:
+                base_code, target_code = m2.group(1).upper(), m2.group(2).upper()
+            else:
+
+                m3 = re.search(
+                    r'from\s+([A-Za-z]{3})\s+to\s+([A-Za-z]{3})',
+                    query, re.IGNORECASE
+                )
+                if m3:
+                    base_code, target_code = m3.group(1).upper(), m3.group(2).upper()
+
+        if not (base_code and target_code):
+            codes = get_countries_currencies(query, max_countries=2)
+            if len(codes) >= 2:
+                base_code, target_code = codes[0], codes[1]
+            else:
+
+                base_code, target_code = "USD", "INR"
+
+        forex_data = get_forex_data(base_code, target_code)
         if "error" in forex_data:
             api_status["forex"] = f"Error: {forex_data['error']}"
         else:
-            responses["forex"]  = forex_data
-            api_status["forex"] = "Success"
-            sources["forex"]    = "Alpha Vantage Forex Data"
+            responses["forex"]   = forex_data
+            api_status["forex"]  = "Success"
+            sources["forex"]     = "Alpha Vantage Forex Data"
 
-        # Google Search
-        if len(responses) <= 1:
-            google_data = get_google_search_results(query)
-            if "error" in google_data:
-                api_status["google_search"] = google_data["error"]
-            else:
-                responses["google_search"] = google_data
-                api_status["google_search"] = "Success"
-                sources["news"] = "Web Results"
+    #  Google Search 
+    if financial_api_called:
+        google_data = get_google_search_results(query)
+        if "error" not in google_data:
+            responses["google_search"] = google_data
+            api_status["google_search"] = "Success"
+            sources["news"] = "Web Results"
+        else:
+            api_status["google_search"] = google_data["error"]
 
     responses["_api_status"] = api_status
     responses["_sources"] = sources
 
-    if len(responses) <= 1:
-        print("WARNING: No successful API calls were made for this query")
-        responses["error"] = "No financial data sources could be accessed for this query"
+    if len(responses) <= 1 and not financial_api_called:
+        print("WARNING: No financial APIs could process this query")
+        responses["error"] = "No relevant data sources found"
 
     return responses
 
@@ -345,13 +379,13 @@ def generate_final_answer(query, index_name):
             prompt,
             do_sample=True,
             temperature=0.5,
-            max_length=3500,
+            max_length=1024,
             top_p=0.9,
             repetition_penalty=1.1,
             eos_token_id=generator.tokenizer.eos_token_id,
             truncation=False,
             return_full_text=False,
-            max_time=5
+            max_time=2
         )
 
         full_response = output[0]['generated_text']

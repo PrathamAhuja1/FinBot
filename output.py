@@ -349,7 +349,9 @@ def generate_final_answer(query, index_name):
             top_p=0.9,
             repetition_penalty=1.1,
             eos_token_id=generator.tokenizer.eos_token_id,
-            truncation=False
+            truncation=False,
+            return_full_text=False,
+            max_time=5
         )
 
         full_response = output[0]['generated_text']

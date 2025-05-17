@@ -222,7 +222,7 @@ def get_countries_currencies(text: str, max_countries: int = 2) -> List[str]:
     seen_alpha2: set[str] = set()
     text_lower = text.lower()
 
-    # 1) Build (alias, country, kind) list
+    #  Build (alias, country, kind) list
     alias_country = []
     for country in pycountry.countries:
         # collect name‑based aliases
@@ -233,14 +233,14 @@ def get_countries_currencies(text: str, max_countries: int = 2) -> List[str]:
             names.add(country.common_name)
         for name in names:
             alias_country.append((name.lower(), country, 'name'))
-        # collect code aliases
+
         alias_country.append((country.alpha_2, country, 'code'))
         alias_country.append((country.alpha_3, country, 'code'))
 
-    # 2) Match longer aliases first
+    #  Match longer aliases first
     alias_country.sort(key=lambda x: len(x[0]), reverse=True)
 
-    # 3) Exact‐alias pass
+    #  Exact‐alias pass
     for alias, country, kind in alias_country:
         if len(results) >= max_countries:
             break

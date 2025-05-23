@@ -497,7 +497,6 @@ if __name__ == "__main__":
 
             result = generate_final_answer(query, INDEX_NAME)
 
-            print("\n💡 Analysis Results:")
             print("━" * 50)
             print(result["answer"])
             print("━" * 50)

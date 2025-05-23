@@ -157,7 +157,7 @@ def extract_ticker(query):
 
 def get_internal_context(query, index_name):
     """
-    Retrieve and process internal context with improved coherence and relevance.
+    Retrieve and process internal context
     """
     try:
         internal_results = query_index(query, index_name)

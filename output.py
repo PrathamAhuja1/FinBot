@@ -11,6 +11,12 @@ import re
 if platform.system() == "Windows":
     asyncio.set_event_loop_policy(asyncio.WindowsSelectorEventLoopPolicy())
 
+from transformers import logging as hf_logging
+hf_logging.set_verbosity_error()    
+
+import logging
+logging.getLogger("accelerate").setLevel(logging.ERROR)
+
 # Load environment variables
 load_dotenv()
 RAPIDAPI_KEY = os.environ.get("RAPIDAPI_KEY")
@@ -95,7 +101,7 @@ def get_google_search_results(query):
     }
     params = {
         "query": query,
-        "limit": "3",
+        "limit": "4",
         "related_keywords": "false"
     }
     try:
@@ -324,7 +330,6 @@ def build_prompt(query, index_name, api_responses=None):
         if api_responses is None:
             api_responses = determine_api_calls(query)
 
-        # Build dynamic context
         data_sources = []
         
         # Stock Data Formatting
@@ -361,9 +366,9 @@ def build_prompt(query, index_name, api_responses=None):
             news = api_responses["google_search"]["results"]
             if news:
                 news_context = [
-                    "Web Updates:",
+                    "\nWeb Updates:",
                     *[f"{i+1}. {result['title']}: {result['snippet']}\n   Link: {result['link']}"
-                      for i, result in enumerate(news[:3])]
+                      for i, result in enumerate(news[:4])]
                 ]
                 data_sources.append("\n".join(news_context))
 
@@ -415,20 +420,6 @@ def generate_final_answer(query, index_name):
         formatted_lines = []
         current_number = 1
 
-        content_type = "general"
-        if "stock_data" in api_responses:
-            content_type = "stock"
-            base_header = f"{api_responses['stock_data']['symbol']} Stock Analysis - {api_responses['stock_data']['date']}"
-        elif "crypto" in api_responses:
-            content_type = "crypto"
-            base_header = f"{api_responses['crypto']['name']} Update"
-        elif "forex" in api_responses:
-            content_type = "forex"
-            base_header = f"{api_responses['forex']['base']}/{api_responses['forex']['target']} Rates"
-        else:
-            base_header = "Financial Analysis"
-
-        formatted_lines.append(base_header)
 
         for line in clean_answer.split('\n'):
             line = line.strip()
@@ -441,13 +432,10 @@ def generate_final_answer(query, index_name):
 
             formatted_lines.append(line)
 
-        if not any(word in clean_answer.lower() for word in ["note:", "closing", "reminder", "summary"]):
-            formatted_lines.append("\nNeed more details or clarification? Just ask!")
-
 
         references = []
         if "google_search" in api_responses and "results" in api_responses["google_search"]:
-            references.extend([result['link'] for result in api_responses["google_search"]["results"][:3]])
+            references.extend([result['link'] for result in api_responses["google_search"]["results"][:4]])
 
         for api_type in ["stock", "crypto", "forex"]:
             if api_type in api_responses.get("_sources", {}):
@@ -461,6 +449,9 @@ def generate_final_answer(query, index_name):
         if len(formatted_lines) < min_expected_length:
             formatted_lines.append("\n[Additional analysis unavailable due to response constraints]")
             formatted_lines.append("Please refine your query or check market data availability.")
+
+        while formatted_lines and re.fullmatch(r"\d+", formatted_lines[-1]):
+            formatted_lines.pop()    
 
         formatted_answer = "\n".join(formatted_lines)
 
@@ -497,13 +488,12 @@ if __name__ == "__main__":
 
             result = generate_final_answer(query, INDEX_NAME)
 
-            print("━" * 50)
-            print(result["answer"])
+            print(result["answer"]) #problem line
             print("━" * 50)
 
             internal_ctx = result.get("internal_context", "").strip()
             if internal_ctx:
-                print("\n🔎 Internal Context:")
+                print("\n🔎 Reference Context:")
                 print(internal_ctx)
                 print("━" * 50)
 

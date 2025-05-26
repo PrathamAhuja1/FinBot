@@ -107,52 +107,6 @@ def query_index(query: str, index_name: str, model_name: str = "sentence-transfo
     return results
 
 
-def extract_ticker(query):
-    """Smart ticker extraction with fallback mechanisms"""
-
-    ticker_map = {
-        # Cryptocurrencies
-        'bitcoin': 'BTC', 'btc': 'BTC',
-        'ethereum': 'ETH', 'eth': 'ETH',
-        'tether': 'USDT', 'usdt': 'USDT',
-        'bnb': 'BNB', 'binance coin': 'BNB',
-        'solana': 'SOL', 'sol': 'SOL',
-        
-        # Stocks (DJIA components + popular tech)
-        'apple': 'AAPL', 'aapl': 'AAPL',
-        'microsoft': 'MSFT', 'msft': 'MSFT',
-        'amazon': 'AMZN', 'amzn': 'AMZN',
-        'google': 'GOOGL', 'googl': 'GOOGL',
-        'tesla': 'TSLA', 'tsla': 'TSLA',
-        'nvidia': 'NVDA', 'nvda': 'NVDA',
-        'meta': 'META', 'meta': 'META',
-        
-        # Metals and Commodities
-        'gold': 'XAU', 'silver': 'XAG',
-        'platinum': 'XPT', 'palladium': 'XPD',
-        'oil': 'CL', 'crude': 'CL',
-    }
-    
-    # Step 1: Direct match from known names
-    q_lower = query.lower()
-    for keyword, symbol in ticker_map.items():
-        if keyword in q_lower:
-            return symbol
-    
-    # Step 2: Regex pattern for ticker-like symbols
-    ticker_pattern = r'\b[A-Z]{1,5}\b'
-    matches = re.findall(ticker_pattern, query)
-    if matches:
-        return max(matches, key=len)
-    
-    # Step 3: Extract last noun phrase
-    words = query.replace('?', '').split()
-    for word in reversed(words):
-        if word.lower() not in {'price', 'stock', 'value', 'of'}:
-            return word.upper()
-    
-    # Final fallback
-    return 'BTC'
 
 
 def get_internal_context(query, index_name):
@@ -213,7 +167,54 @@ def get_internal_context(query, index_name):
         return context
     except Exception as e:
         print(f"Error in get_internal_context: {str(e)}")
-        return ""
+        return "" 
+
+def extract_ticker(query):
+    """Smart ticker extraction with fallback mechanisms"""
+
+    ticker_map = {
+        # Cryptocurrencies
+        'bitcoin': 'BTC', 'btc': 'BTC',
+        'ethereum': 'ETH', 'eth': 'ETH',
+        'tether': 'USDT', 'usdt': 'USDT',
+        'bnb': 'BNB', 'binance coin': 'BNB',
+        'solana': 'SOL', 'sol': 'SOL',
+        
+        # Stocks (DJIA components + popular tech)
+        'apple': 'AAPL', 'aapl': 'AAPL',
+        'microsoft': 'MSFT', 'msft': 'MSFT',
+        'amazon': 'AMZN', 'amzn': 'AMZN',
+        'google': 'GOOGL', 'googl': 'GOOGL',
+        'tesla': 'TSLA', 'tsla': 'TSLA',
+        'nvidia': 'NVDA', 'nvda': 'NVDA',
+        'meta': 'META', 'meta': 'META',
+        
+        # Metals and Commodities
+        'gold': 'XAU', 'silver': 'XAG',
+        'platinum': 'XPT', 'palladium': 'XPD',
+        'oil': 'CL', 'crude': 'CL',
+    }
+    
+    # Step 1: Direct match from known names
+    q_lower = query.lower()
+    for keyword, symbol in ticker_map.items():
+        if keyword in q_lower:
+            return symbol
+    
+    # Step 2: Regex pattern for ticker-like symbols
+    ticker_pattern = r'\b[A-Z]{1,5}\b'
+    matches = re.findall(ticker_pattern, query)
+    if matches:
+        return max(matches, key=len)
+    
+    # Step 3: Extract last noun phrase
+    words = query.replace('?', '').split()
+    for word in reversed(words):
+        if word.lower() not in {'price', 'stock', 'value', 'of'}:
+            return word.upper()
+    
+    # Final fallback
+    return 'BTC'    
 
 
 def get_countries_currencies(text: str, max_countries: int = 2) -> List[str]:

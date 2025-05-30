@@ -17,7 +17,7 @@ hf_logging.set_verbosity_error()
 import logging
 logging.getLogger("accelerate").setLevel(logging.ERROR)
 
-# Load environment variables
+
 load_dotenv()
 RAPIDAPI_KEY = os.environ.get("RAPIDAPI_KEY")
 INDEX_NAME = "finance"
@@ -488,7 +488,7 @@ if __name__ == "__main__":
 
             result = generate_final_answer(query, INDEX_NAME)
 
-            print(result["answer"]) #problem line
+            print(result["answer"])
             print("━" * 50)
 
             internal_ctx = result.get("internal_context", "").strip()

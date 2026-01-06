@@ -135,6 +135,7 @@ venv/
 ENV/
 env.bak/
 venv.bak/
+fin/
 
 # Spyder project settings
 .spyderproject
@@ -172,4 +173,4 @@ cython_debug/
 
 
 
-Finance Knowledge Base Resources.pdf
+Resources/

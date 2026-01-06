@@ -174,3 +174,4 @@ cython_debug/
 
 
 Resources/
+model_cache/
